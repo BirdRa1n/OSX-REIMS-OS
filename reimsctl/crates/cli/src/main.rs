@@ -4,6 +4,7 @@
 //!   reimsctl menu                    → mostra o menu principal
 //!   reimsctl releases                → lista versões de macOS
 //!   reimsctl identity                → gera uma identidade de VM (JSON)
+//!   reimsctl identity-inject <plist> → gera identidade e injeta no config.plist
 //!   reimsctl qemu-args <vm.json>     → imprime a linha do QEMU para uma VM
 //!   reimsctl update-check            → checa atualizações
 //!   reimsctl vm list                 → lista VMs
@@ -28,6 +29,15 @@ fn main() -> Result<()> {
             let id = reimsctl_efi::Identity::generate();
             println!("{}", serde_json::to_string_pretty(&id)?);
         }
+        "identity-inject" => {
+            let path = args
+                .get(1)
+                .context("uso: reimsctl identity-inject <config.plist>")?;
+            let id = reimsctl_efi::Identity::generate();
+            reimsctl_efi::set_platform_identity(std::path::Path::new(path), &id)?;
+            eprintln!("identidade injetada em {path}");
+            println!("{}", serde_json::to_string_pretty(&id)?);
+        }
         "qemu-args" => {
             let path = args.get(1).context("uso: reimsctl qemu-args <vm.json>")?;
             let data = std::fs::read_to_string(path).with_context(|| format!("lendo {path}"))?;
@@ -49,7 +59,7 @@ fn main() -> Result<()> {
         other => {
             eprintln!("comando desconhecido: {other}");
             eprintln!(
-                "comandos: menu | releases | identity | qemu-args <vm.json> | update-check | vm ..."
+                "comandos: menu | releases | identity | identity-inject <plist> | qemu-args <vm.json> | update-check | vm ..."
             );
             std::process::exit(2);
         }

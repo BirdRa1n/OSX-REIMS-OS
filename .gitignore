@@ -12,6 +12,8 @@ Cargo.lock.bak
 /image/.build/
 /vgpu/build/
 /opencore/dist/
+/opencore/base/
+/opencore/.cache/
 
 # macOS baixado (NUNCA versionar imagens da Apple)
 *.dmg
