@@ -1,0 +1,14 @@
+[package]
+name = "reimsctl-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reimsctl-core.workspace = true
+
+# TODO(fase-1): adotar `ratatui` + `crossterm` para a TUI de tela cheia.
+# Mantido fora agora para o workspace compilar sem validação de API.
+# ratatui = "0.28"
+# crossterm = "0.28"
