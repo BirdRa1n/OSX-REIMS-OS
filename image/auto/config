@@ -3,10 +3,27 @@
 # Regenera a config a cada build. Ver image/README.md.
 set -e
 
+# --mode debian + mirrors Debian explícitos: sem isso, num host Ubuntu (ex.: o
+# runner do GitHub Actions) o live-build entra em "modo ubuntu" e tenta baixar
+# 'trixie' do archive.ubuntu.com, que não existe.
+DEB_MIRROR="http://deb.debian.org/debian/"
+DEB_SEC="http://security.debian.org/debian-security/"
+
 lb config noauto \
+	--mode debian \
 	--distribution trixie \
 	--architectures amd64 \
 	--archive-areas "main contrib non-free non-free-firmware" \
+	--mirror-bootstrap "${DEB_MIRROR}" \
+	--mirror-chroot "${DEB_MIRROR}" \
+	--mirror-chroot-security "${DEB_SEC}" \
+	--mirror-binary "${DEB_MIRROR}" \
+	--mirror-binary-security "${DEB_SEC}" \
+	--parent-mirror-bootstrap "${DEB_MIRROR}" \
+	--parent-mirror-chroot "${DEB_MIRROR}" \
+	--parent-mirror-chroot-security "${DEB_SEC}" \
+	--parent-mirror-binary "${DEB_MIRROR}" \
+	--parent-mirror-binary-security "${DEB_SEC}" \
 	--debian-installer live \
 	--debian-installer-gui false \
 	--bootappend-live "boot=live components quiet splash" \
