@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Console principal do OSX-REIMS-OS (roda no tty1 após o provisioner).
+# Loop simples sobre os subcomandos do reimsctl. Vira TUI (ratatui) na fase 1+.
+set -uo pipefail
+
+REIMSCTL="${REIMSCTL:-reimsctl}"
+
+pause() { read -rp "[enter para voltar] " _ || true; }
+
+while true; do
+	clear
+	"$REIMSCTL" menu
+	read -rp "> escolha: " choice || exit 0
+	case "$choice" in
+		1)
+			read -rp "release (ventura|sonoma|sequoia|tahoe): " rel
+			read -rp "diretório destino: " dir
+			"$REIMSCTL" fetch-macos "$rel" "$dir" || true
+			pause ;;
+		2)
+			read -rp "nome da VM: " name
+			read -rp "release (ventura|sonoma|sequoia|tahoe): " rel
+			"$REIMSCTL" vm create "$name" "$rel" || true
+			pause ;;
+		3)
+			read -rp "nome da VM: " name
+			"$REIMSCTL" vm start "$name" || true
+			pause ;;
+		4)
+			"$REIMSCTL" update-check || true
+			pause ;;
+		5)
+			exit 0 ;;
+		*)
+			: ;;
+	esac
+done

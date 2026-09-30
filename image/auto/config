@@ -1,0 +1,18 @@
+#!/bin/sh
+# live-build: configuração do OSX-REIMS-OS (Debian 13 / trixie, amd64).
+# Regenera a config a cada build. Ver image/README.md.
+set -e
+
+lb config noauto \
+	--distribution trixie \
+	--architectures amd64 \
+	--archive-areas "main contrib non-free non-free-firmware" \
+	--debian-installer live \
+	--debian-installer-gui false \
+	--bootappend-live "boot=live components quiet splash" \
+	--bootappend-install "auto=true preseed/file=/cdrom/preseed.cfg" \
+	--iso-application "OSX-REIMS-OS" \
+	--iso-publisher "OSX-REIMS-OS" \
+	--iso-volume "OSX-REIMS-OS" \
+	--memtest none \
+	"${@}"

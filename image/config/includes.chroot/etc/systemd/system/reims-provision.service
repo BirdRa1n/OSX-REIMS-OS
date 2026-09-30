@@ -1,0 +1,15 @@
+[Unit]
+Description=OSX-REIMS-OS first-boot provisioner (GPU driver + Vulkan)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/reims/provisioned
+Before=reims-console.service
+
+[Service]
+Type=oneshot
+Environment=ASSUME_YES=0
+ExecStart=/usr/local/bin/provision.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

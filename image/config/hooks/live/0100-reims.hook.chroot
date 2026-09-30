@@ -1,0 +1,11 @@
+#!/bin/sh
+# Habilita os serviços do appliance e garante permissões dos scripts.
+set -e
+
+chmod +x /usr/local/bin/reimsctl /usr/local/bin/provision.sh /usr/local/bin/reims-console 2>/dev/null || true
+
+systemctl enable reims-provision.service
+systemctl enable reims-console.service
+
+# console em tty1: o reims-console.service já entra em conflito com getty@tty1.
+systemctl set-default multi-user.target
