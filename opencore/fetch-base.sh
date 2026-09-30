@@ -34,8 +34,14 @@ if [ ! -f "${src_img}" ]; then
   exit 1
 fi
 
-cp -v "${src_img}" "${dest}/OpenCore.qcow2"
-echo ">> base copiada para ${dest}/OpenCore.qcow2"
+# Layout por-rail: <base>/<rail>/OpenCore.qcow2 (paths::opencore_base_image).
+# O OSX-KVM traz UMA imagem genérica; por ora replicamos em todos os rails
+# (quirks por versão podem divergir depois).
+for rail in macos-13 macos-14 macos-15 macos-26; do
+  mkdir -p "${dest}/${rail}"
+  cp -v "${src_img}" "${dest}/${rail}/OpenCore.qcow2"
+done
+echo ">> bases copiadas em ${dest}/<rail>/OpenCore.qcow2"
 echo ">> commit da base:"
 git -C "${cache}" rev-parse HEAD
 

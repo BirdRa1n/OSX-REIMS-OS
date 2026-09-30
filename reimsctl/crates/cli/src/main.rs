@@ -12,9 +12,10 @@
 //!   reimsctl vm list                 → lista VMs
 //!   reimsctl vm create <nome> <rel>  → cria uma VM (rel: ventura|sonoma|sequoia|tahoe)
 //!   reimsctl vm start <nome>         → sobe uma VM no QEMU
+//!   reimsctl vm provision <nome> <rel> → cria + baixa macOS + OpenCore + disco
 
 use anyhow::{Context, Result};
-use reimsctl_core::{launch, qemu, release::MacosRelease, vm::VmConfig, Store};
+use reimsctl_core::{launch, paths, qemu, release::MacosRelease, vm::VmConfig, Store};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -126,10 +127,83 @@ fn vm_subcommand(args: &[String]) -> Result<()> {
             launch::create_disk(&cfg)?;
             launch::start(&cfg)?;
         }
+        Some("provision") => {
+            let name = args
+                .get(2)
+                .context("uso: reimsctl vm provision <nome> <release>")?;
+            let rel = args
+                .get(3)
+                .context("uso: reimsctl vm provision <nome> <release>")?;
+            let macos =
+                MacosRelease::parse(rel).with_context(|| format!("release inválida: {rel}"))?;
+            vm_provision(&store, name, macos)?;
+        }
         _ => {
-            eprintln!("uso: reimsctl vm <list|create <nome> <release>|start <nome>>");
+            eprintln!(
+                "uso: reimsctl vm <list|create <nome> <rel>|start <nome>|provision <nome> <rel>>"
+            );
             std::process::exit(2);
         }
     }
+    Ok(())
+}
+
+/// Fluxo end-to-end: cria a VM, baixa o macOS, prepara o OpenCore com identidade
+/// única e cria o disco. Deixa pronta para `vm start` (falta só a OSK).
+fn vm_provision(store: &Store, name: &str, macos: MacosRelease) -> Result<()> {
+    println!(">> [1/4] criando VM '{name}' (macOS {})", macos.code_name());
+    let cfg = store.create(name, macos)?;
+
+    println!(">> [2/4] baixando macOS Recovery da Apple (pode demorar)");
+    reimsctl_macos::fetch_recovery(macos, &cfg.dir)?;
+
+    println!(">> [3/4] preparando OpenCore + identidade única");
+    let base = paths::opencore_base_image(&paths::opencore_base_dir(), macos);
+    anyhow::ensure!(
+        base.is_file(),
+        "base do OpenCore ausente: {} (rode opencore/fetch-base.sh e instale em {})",
+        base.display(),
+        paths::DEFAULT_OPENCORE_BASE_DIR
+    );
+    std::fs::copy(&base, cfg.opencore_path()).with_context(|| {
+        format!(
+            "copiando {} -> {}",
+            base.display(),
+            cfg.opencore_path().display()
+        )
+    })?;
+
+    let id = reimsctl_efi::Identity::generate();
+    let plist = cfg.dir.join("config.plist");
+    let oc_img = cfg.opencore_path();
+    run_oc_image("extract", &oc_img, &plist)?;
+    reimsctl_efi::set_platform_identity(&plist, &id)?;
+    run_oc_image("inject", &oc_img, &plist)?;
+    std::fs::write(
+        cfg.dir.join("identity.json"),
+        serde_json::to_string_pretty(&id)?,
+    )?;
+
+    println!(">> [4/4] criando disco da VM");
+    launch::create_disk(&cfg)?;
+
+    println!(
+        "VM '{name}' pronta. Defina 'applesmc_osk' em {} e rode: reimsctl vm start {name}",
+        cfg.config_path().display()
+    );
+    Ok(())
+}
+
+/// Invoca o `oc-image.sh` (`extract`/`inject`) via bash.
+fn run_oc_image(action: &str, img: &std::path::Path, plist: &std::path::Path) -> Result<()> {
+    let script = paths::oc_image_script();
+    let status = std::process::Command::new("bash")
+        .arg(&script)
+        .arg(action)
+        .arg(img)
+        .arg(plist)
+        .status()
+        .with_context(|| format!("executando {}", script.display()))?;
+    anyhow::ensure!(status.success(), "oc-image.sh {action} falhou ({status})");
     Ok(())
 }

@@ -6,6 +6,7 @@
 
 pub mod gpu;
 pub mod launch;
+pub mod paths;
 pub mod qemu;
 pub mod release;
 pub mod store;

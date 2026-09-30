@@ -15,7 +15,8 @@ mesa-vulkan-drivers
 vulkan-tools
 libvulkan1
 
-# manuseio da imagem OpenCore (extrair/reempacotar config.plist da FAT)
+# manuseio da imagem OpenCore (extrair/injetar config.plist na qcow2)
+libguestfs-tools
 mtools
 
 # rede/utilidades

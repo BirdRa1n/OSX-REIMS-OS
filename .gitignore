@@ -20,6 +20,8 @@ Cargo.lock.bak
 /image/config/source
 /image/config/includes.chroot/usr/local/bin/reimsctl
 /image/config/includes.chroot/usr/local/bin/provision.sh
+/image/config/includes.chroot/usr/local/lib/reims/
+/image/config/includes.chroot/usr/local/share/reims/
 /vgpu/build/
 /opencore/dist/
 /opencore/base/

@@ -18,11 +18,24 @@ bin_dst="${img}/config/includes.chroot/usr/local/bin"
 echo ">> 1/4 compilando reimsctl (release)"
 ( cd "${root}/reimsctl" && cargo build --release )
 
-echo ">> 2/4 montando binários em includes.chroot"
+echo ">> 2/4 montando binários e helpers em includes.chroot"
 mkdir -p "${bin_dst}"
 cp "${root}/reimsctl/target/release/reimsctl" "${bin_dst}/reimsctl"
 cp "${root}/provisioner/provision.sh" "${bin_dst}/provision.sh"
 chmod +x "${bin_dst}/reimsctl" "${bin_dst}/provision.sh" "${bin_dst}/reims-console"
+
+# helper de imagem OpenCore → /usr/local/lib/reims/oc-image.sh
+lib_dst="${img}/config/includes.chroot/usr/local/lib/reims"
+mkdir -p "${lib_dst}"
+cp "${root}/opencore/oc-image.sh" "${lib_dst}/oc-image.sh"
+chmod +x "${lib_dst}/oc-image.sh"
+
+# bases de OpenCore (se já buscadas) → /usr/local/share/reims/opencore/<rail>/
+if [ -d "${root}/opencore/base" ]; then
+	share_dst="${img}/config/includes.chroot/usr/local/share/reims/opencore"
+	mkdir -p "${share_dst}"
+	cp -r "${root}/opencore/base/." "${share_dst}/"
+fi
 
 # 3/4 reims-vgpu pré-compilado (opcional): se existir vgpu/build/, copie para /opt
 if [ -d "${root}/vgpu/build" ]; then
