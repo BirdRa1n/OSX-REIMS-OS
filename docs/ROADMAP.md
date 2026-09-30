@@ -26,7 +26,7 @@ Provar que o stack roda **na mão** antes de investir em ISO.
 - [x] `provisioner/`: detecção de GPU, drivers (Intel/AMD Mesa; NVIDIA opt-in),
       validação Vulkan 1.2+ (deploy do `reims-vgpu` pré-compilado: hook no build-iso).
 - [ ] Validar o build da ISO numa Debian 13 (bash -n só cobre sintaxe).
-- [ ] CI (`.github/workflows`) que gera a ISO.
+- [x] CI (`.github/workflows/iso.yml`) que gera a ISO (workflow_dispatch + tags v*).
 
 ## Fase 3 — Atualizações & polimento
 - [ ] `updater`: repo APT próprio assinado + rebuild do reims-vgpu.
