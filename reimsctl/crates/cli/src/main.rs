@@ -5,6 +5,7 @@
 //!   reimsctl releases                → lista versões de macOS
 //!   reimsctl identity                → gera uma identidade de VM (JSON)
 //!   reimsctl identity-inject <plist> → gera identidade e injeta no config.plist
+//!   reimsctl gpu-detect              → detecta a GPU do host (intel|amd|nvidia|unknown)
 //!   reimsctl fetch-macos <rel> <dir> → baixa o Recovery do macOS da Apple
 //!   reimsctl qemu-args <vm.json>     → imprime a linha do QEMU para uma VM
 //!   reimsctl update-check            → checa atualizações
@@ -47,6 +48,15 @@ fn main() -> Result<()> {
             let qemu_args = qemu::build_args(&vm)?;
             println!("qemu-system-x86_64 {}", qemu_args.join(" "));
         }
+        "gpu-detect" => {
+            let v = reimsctl_core::gpu::detect_primary();
+            println!("{}", v.as_str());
+            eprintln!(
+                "driver Vulkan: {} | opt-in: {}",
+                v.vulkan_driver(),
+                v.requires_optin()
+            );
+        }
         "fetch-macos" => {
             let rel = args
                 .get(1)
@@ -72,7 +82,7 @@ fn main() -> Result<()> {
         other => {
             eprintln!("comando desconhecido: {other}");
             eprintln!(
-                "comandos: menu | releases | identity | identity-inject <plist> | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
+                "comandos: menu | releases | identity | identity-inject <plist> | gpu-detect | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
             );
             std::process::exit(2);
         }
