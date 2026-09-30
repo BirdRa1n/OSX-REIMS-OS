@@ -15,7 +15,7 @@ Provar que o stack roda **na mão** antes de investir em ISO.
 ## Fase 1 — `reimsctl` mínimo (Rust)
 - [ ] `core`: modelo de VM + assembler da linha do QEMU (esqueleto pronto).
 - [ ] `efi`: geração de identidade única (serial/MLB/UUID/ROM/MAC) + injeção OpenCore.
-- [ ] `macos`: download do Recovery da Apple pelo menu.
+- [x] `macos`: download do Recovery da Apple (protocolo osrecovery; CLI `fetch-macos`).
 - [ ] `core`: criar/iniciar/parar/listar VM (storage qcow2 + snapshots).
 - [ ] `tui`: menu de console (ratatui).
 - [ ] `cli`: binário `reimsctl` amarrando tudo.

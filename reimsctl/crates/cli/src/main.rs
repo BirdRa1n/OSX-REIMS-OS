@@ -5,6 +5,7 @@
 //!   reimsctl releases                → lista versões de macOS
 //!   reimsctl identity                → gera uma identidade de VM (JSON)
 //!   reimsctl identity-inject <plist> → gera identidade e injeta no config.plist
+//!   reimsctl fetch-macos <rel> <dir> → baixa o Recovery do macOS da Apple
 //!   reimsctl qemu-args <vm.json>     → imprime a linha do QEMU para uma VM
 //!   reimsctl update-check            → checa atualizações
 //!   reimsctl vm list                 → lista VMs
@@ -46,6 +47,18 @@ fn main() -> Result<()> {
             let qemu_args = qemu::build_args(&vm)?;
             println!("qemu-system-x86_64 {}", qemu_args.join(" "));
         }
+        "fetch-macos" => {
+            let rel = args
+                .get(1)
+                .context("uso: reimsctl fetch-macos <release> <dir>")?;
+            let dir = args
+                .get(2)
+                .context("uso: reimsctl fetch-macos <release> <dir>")?;
+            let macos =
+                MacosRelease::parse(rel).with_context(|| format!("release inválida: {rel}"))?;
+            let img = reimsctl_macos::fetch_recovery(macos, std::path::Path::new(dir))?;
+            println!("baixado: {}", img.path.display());
+        }
         "update-check" => {
             let st = reimsctl_updater::check()?;
             match st.latest {
@@ -59,7 +72,7 @@ fn main() -> Result<()> {
         other => {
             eprintln!("comando desconhecido: {other}");
             eprintln!(
-                "comandos: menu | releases | identity | identity-inject <plist> | qemu-args <vm.json> | update-check | vm ..."
+                "comandos: menu | releases | identity | identity-inject <plist> | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
             );
             std::process::exit(2);
         }

@@ -6,4 +6,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+rand.workspace = true
+ureq.workspace = true
 reimsctl-core.workspace = true
