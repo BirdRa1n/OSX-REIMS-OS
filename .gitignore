@@ -7,11 +7,25 @@ Cargo.lock.bak
 *.iso
 *.img
 *.qcow2
-/image/config/
-/image/cache/
+# live-build: versionamos a config autoral (auto/, config/package-lists,
+# config/hooks, config/includes.*), mas ignoramos o que o lb gera e os
+# binários montados pelo build-iso.sh.
 /image/.build/
+/image/cache/
+/image/.lb/
+/image/config/binary
+/image/config/bootstrap
+/image/config/chroot
+/image/config/common
+/image/config/source
+/image/config/includes.chroot/usr/local/bin/reimsctl
+/image/config/includes.chroot/usr/local/bin/provision.sh
+/image/config/includes.chroot/usr/local/lib/reims/
+/image/config/includes.chroot/usr/local/share/reims/
 /vgpu/build/
 /opencore/dist/
+/opencore/base/
+/opencore/.cache/
 
 # macOS baixado (NUNCA versionar imagens da Apple)
 *.dmg

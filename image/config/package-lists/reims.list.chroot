@@ -1,0 +1,27 @@
+# Pacotes do appliance OSX-REIMS-OS (instalados no chroot da imagem).
+
+# kernel + firmware (Intel/AMD; NVIDIA proprietário é opt-in no provisioner)
+linux-image-amd64
+firmware-linux
+firmware-misc-nonfree
+
+# virtualização
+qemu-system-x86
+qemu-utils
+ovmf
+
+# Vulkan / Mesa (ANV Intel + RADV AMD)
+mesa-vulkan-drivers
+vulkan-tools
+libvulkan1
+
+# manuseio da imagem OpenCore (extrair/injetar config.plist na qcow2)
+libguestfs-tools
+mtools
+
+# rede/utilidades
+git
+curl
+ca-certificates
+sudo
+pciutils

@@ -8,4 +8,5 @@ license.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 rand.workspace = true
+plist.workspace = true
 reimsctl-core.workspace = true

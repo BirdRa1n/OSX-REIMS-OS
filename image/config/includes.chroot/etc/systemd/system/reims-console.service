@@ -1,0 +1,17 @@
+[Unit]
+Description=OSX-REIMS-OS console (tty1)
+After=reims-provision.service systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+ExecStart=/usr/local/bin/reims-console
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

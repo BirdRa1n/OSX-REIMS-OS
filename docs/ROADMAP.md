@@ -15,16 +15,17 @@ Provar que o stack roda **na mão** antes de investir em ISO.
 ## Fase 1 — `reimsctl` mínimo (Rust)
 - [ ] `core`: modelo de VM + assembler da linha do QEMU (esqueleto pronto).
 - [ ] `efi`: geração de identidade única (serial/MLB/UUID/ROM/MAC) + injeção OpenCore.
-- [ ] `macos`: download do Recovery da Apple pelo menu.
+- [x] `macos`: download do Recovery da Apple (protocolo osrecovery; CLI `fetch-macos`).
 - [ ] `core`: criar/iniciar/parar/listar VM (storage qcow2 + snapshots).
 - [ ] `tui`: menu de console (ratatui).
 - [ ] `cli`: binário `reimsctl` amarrando tudo.
 
 ## Fase 2 — Imagem/ISO (live-build)
-- [ ] `image/`: live-build Debian 13, sem GUI, autologin do `reimsctl` no tty1.
-- [ ] Instalador Fase 1 (disco + senha) — preseed → depois TUI própria.
-- [ ] `provisioner/`: detecção de GPU, drivers (Intel/AMD Mesa; NVIDIA opt-in),
-      validação Vulkan 1.2+, deploy do `reims-vgpu` pré-compilado.
+- [x] `image/`: live-build Debian 13, sem GUI, console do `reimsctl` no tty1.
+- [x] Instalador Fase 1 (disco + senha) — preseed (a validar em Debian real).
+- [x] `provisioner/`: detecção de GPU, drivers (Intel/AMD Mesa; NVIDIA opt-in),
+      validação Vulkan 1.2+ (deploy do `reims-vgpu` pré-compilado: hook no build-iso).
+- [ ] Validar o build da ISO numa Debian 13 (bash -n só cobre sintaxe).
 - [ ] CI (`.github/workflows`) que gera a ISO.
 
 ## Fase 3 — Atualizações & polimento
