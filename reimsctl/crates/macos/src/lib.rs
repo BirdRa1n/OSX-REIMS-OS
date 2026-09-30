@@ -21,7 +21,11 @@ pub struct RecoveryImage {
 /// (catálogo de sucatalog + chunklist), com verificação de integridade. Por ora
 /// apenas valida o destino.
 pub fn fetch_recovery(release: MacosRelease, dest_dir: &Path) -> Result<RecoveryImage> {
-    anyhow::ensure!(dest_dir.is_dir(), "destino não é um diretório: {}", dest_dir.display());
+    anyhow::ensure!(
+        dest_dir.is_dir(),
+        "destino não é um diretório: {}",
+        dest_dir.display()
+    );
     let _ = release;
     anyhow::bail!("fetch_recovery: não implementado (fase-1) — ver docs/ROADMAP.md")
 }

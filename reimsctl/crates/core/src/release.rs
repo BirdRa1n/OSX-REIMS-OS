@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MacosRelease {
-    Ventura,  // 13
-    Sonoma,   // 14
-    Sequoia,  // 15
-    Tahoe,    // 26
+    Ventura, // 13
+    Sonoma,  // 14
+    Sequoia, // 15
+    Tahoe,   // 26
 }
 
 impl MacosRelease {

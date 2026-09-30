@@ -27,10 +27,9 @@ fn main() -> Result<()> {
         }
         "qemu-args" => {
             let path = args.get(1).context("uso: reimsctl qemu-args <vm.json>")?;
-            let data = std::fs::read_to_string(path)
-                .with_context(|| format!("lendo {path}"))?;
-            let vm: VmConfig = serde_json::from_str(&data)
-                .with_context(|| format!("parseando {path}"))?;
+            let data = std::fs::read_to_string(path).with_context(|| format!("lendo {path}"))?;
+            let vm: VmConfig =
+                serde_json::from_str(&data).with_context(|| format!("parseando {path}"))?;
             let qemu_args = qemu::build_args(&vm)?;
             println!("qemu-system-x86_64 {}", qemu_args.join(" "));
         }
