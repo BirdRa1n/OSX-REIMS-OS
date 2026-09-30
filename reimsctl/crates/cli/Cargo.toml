@@ -1,0 +1,18 @@
+[package]
+name = "reimsctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "reimsctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+reimsctl-core.workspace = true
+reimsctl-efi.workspace = true
+reimsctl-macos.workspace = true
+reimsctl-updater.workspace = true
+reimsctl-tui.workspace = true

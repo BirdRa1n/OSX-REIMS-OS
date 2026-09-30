@@ -1,0 +1,29 @@
+# Rust
+/reimsctl/target/
+**/target/
+Cargo.lock.bak
+
+# Build artifacts / imagens
+*.iso
+*.img
+*.qcow2
+/image/config/
+/image/cache/
+/image/.build/
+/vgpu/build/
+/opencore/dist/
+
+# macOS baixado (NUNCA versionar imagens da Apple)
+*.dmg
+*.ipsw
+BaseSystem*
+RecoveryImage*
+
+# Segredos / chaves de assinatura
+*.key
+*.gpg
+.env
+
+# SO
+.DS_Store
+Thumbs.db
