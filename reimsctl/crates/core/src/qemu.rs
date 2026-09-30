@@ -95,3 +95,42 @@ pub fn build_args(vm: &VmConfig) -> Result<Vec<String>> {
 
     Ok(a)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::release::MacosRelease;
+    use crate::vm::VmConfig;
+    use std::path::PathBuf;
+
+    fn sample() -> VmConfig {
+        let mut vm = VmConfig::new("t", MacosRelease::Sonoma, PathBuf::from("/tmp/reims/t"));
+        vm.applesmc_osk = "DUMMY-OSK".to_string();
+        vm
+    }
+
+    #[test]
+    fn empty_osk_is_rejected() {
+        let mut vm = sample();
+        vm.applesmc_osk.clear();
+        assert!(build_args(&vm).is_err());
+    }
+
+    #[test]
+    fn includes_kvm_and_vgpu_device() {
+        let args = build_args(&sample()).unwrap();
+        assert!(args.iter().any(|a| a == "-enable-kvm"));
+        assert!(args.iter().any(|a| a == "reims-vgpu-pci"));
+        // a OSK é repassada no device applesmc
+        assert!(args.iter().any(|a| a.contains("osk=DUMMY-OSK")));
+    }
+
+    #[test]
+    fn vgpu_off_uses_basic_vga() {
+        let mut vm = sample();
+        vm.vgpu = false;
+        let args = build_args(&vm).unwrap();
+        assert!(args.iter().any(|a| a == "VGA"));
+        assert!(!args.iter().any(|a| a == "reims-vgpu-pci"));
+    }
+}

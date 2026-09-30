@@ -5,10 +5,13 @@
 //! `macos`, `tui` e o binário `cli` se apoiam.
 
 pub mod gpu;
+pub mod launch;
 pub mod qemu;
 pub mod release;
+pub mod store;
 pub mod vm;
 
 pub use gpu::GpuVendor;
 pub use release::MacosRelease;
+pub use store::Store;
 pub use vm::VmConfig;
