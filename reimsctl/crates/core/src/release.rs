@@ -43,4 +43,34 @@ impl MacosRelease {
     pub fn rail(&self) -> String {
         format!("macos-{}", self.major())
     }
+
+    /// Faz parse de um nome de código ou número maior (ex.: "sonoma" ou "14").
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "ventura" | "13" => Some(MacosRelease::Ventura),
+            "sonoma" | "14" => Some(MacosRelease::Sonoma),
+            "sequoia" | "15" => Some(MacosRelease::Sequoia),
+            "tahoe" | "26" => Some(MacosRelease::Tahoe),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rail_and_major() {
+        assert_eq!(MacosRelease::Sonoma.major(), 14);
+        assert_eq!(MacosRelease::Sonoma.rail(), "macos-14");
+        assert_eq!(MacosRelease::Tahoe.rail(), "macos-26");
+    }
+
+    #[test]
+    fn parse_names_and_numbers() {
+        assert_eq!(MacosRelease::parse("Sonoma"), Some(MacosRelease::Sonoma));
+        assert_eq!(MacosRelease::parse(" 15 "), Some(MacosRelease::Sequoia));
+        assert_eq!(MacosRelease::parse("nope"), None);
+    }
 }

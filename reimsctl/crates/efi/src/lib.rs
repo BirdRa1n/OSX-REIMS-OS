@@ -80,3 +80,33 @@ fn random_uuid<R: Rng>(rng: &mut R) -> String {
 pub fn inject_opencore(_rail: &str, _id: &Identity) -> anyhow::Result<()> {
     anyhow::bail!("inject_opencore: não implementado (fase-1)")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_has_correct_shapes() {
+        let id = Identity::generate();
+        assert_eq!(id.serial.len(), 12);
+        assert_eq!(id.mlb.len(), 17);
+        assert_eq!(id.uuid.len(), 36); // 8-4-4-4-12 + 4 hífens
+        assert_eq!(id.uuid.matches('-').count(), 4);
+        assert_eq!(id.rom.len(), 12); // 6 bytes em hex
+        assert_eq!(id.mac.matches(':').count(), 5);
+    }
+
+    #[test]
+    fn mac_is_locally_administered_unicast() {
+        let id = Identity::generate();
+        let first = u8::from_str_radix(&id.mac[0..2], 16).unwrap();
+        assert_eq!(first & 0b11, 0b10); // bit local = 1, bit multicast = 0
+    }
+
+    #[test]
+    fn rom_matches_mac_bytes() {
+        let id = Identity::generate();
+        let mac_hex: String = id.mac.split(':').collect();
+        assert_eq!(id.rom, mac_hex);
+    }
+}
