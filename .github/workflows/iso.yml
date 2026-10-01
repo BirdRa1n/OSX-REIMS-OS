@@ -59,4 +59,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: "OSX-REIMS-OS ${{ github.ref_name }}"
+          # tags com hífen (ex.: v0.1.0-beta.1) viram pré-release
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
           files: image/*.iso
