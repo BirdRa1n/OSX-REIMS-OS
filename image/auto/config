@@ -17,6 +17,8 @@ lb config noauto \
 	--architectures amd64 \
 	--archive-areas "main contrib non-free non-free-firmware" \
 	--security false \
+	--firmware-chroot false \
+	--firmware-binary false \
 	--mirror-bootstrap "${DEB_MIRROR}" \
 	--mirror-chroot "${DEB_MIRROR}" \
 	--mirror-binary "${DEB_MIRROR}" \
