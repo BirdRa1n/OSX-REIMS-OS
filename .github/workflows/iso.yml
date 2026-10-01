@@ -29,15 +29,24 @@ jobs:
         with:
           workspaces: reimsctl
 
-      - name: Install live-build
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y live-build debootstrap debian-archive-keyring
+      - name: Build reimsctl + stage includes (host)
+        run: SKIP_LB=1 scripts/build-iso.sh
 
-      - name: Build ISO
-        # Roda como usuário normal: o cargo build corre como o usuário e o
-        # build-iso.sh usa `sudo` internamente só para o `lb build`.
-        run: scripts/build-iso.sh
+      # O live-build precisa ser o da própria Debian trixie: rodar num container
+      # debian:trixie evita os defaults errados do live-build empacotado no Ubuntu
+      # (modo ubuntu, suite de security, path do Contents, flavor sysvinit).
+      - name: Build ISO (debian:trixie container)
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD":/work -w /work/image \
+            debian:trixie bash -euo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y live-build
+              lb clean --purge || true
+              ./auto/config
+              lb build
+            '
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4

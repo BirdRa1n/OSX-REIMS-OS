@@ -46,6 +46,13 @@ else
 	echo ">> 3/4 (pulando reims-vgpu — vgpu/build/ ausente; ver vgpu/README.md)"
 fi
 
+# SKIP_LB=1: só compila/monta o staging (o CI roda o `lb build` num container
+# debian:trixie para ter o live-build correto da própria Debian).
+if [ "${SKIP_LB:-0}" = "1" ]; then
+	echo ">> SKIP_LB=1: staging pronto; pulando o lb build"
+	exit 0
+fi
+
 echo ">> 4/4 live-build"
 cd "${img}"
 if [ "$(id -u)" -ne 0 ]; then
