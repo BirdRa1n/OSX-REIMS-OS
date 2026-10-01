@@ -9,8 +9,8 @@ ao macOS. Usamos **OpenCore**, com a base vinda do **OSX-KVM** (kholia/OSX-KVM).
    base (`OpenCore.qcow2`) para `opencore/base/` (**gitignored** — não versionamos
    binários de terceiros).
 2. **Extração** (host, Fase 2) — o `config.plist` fica dentro da FAT da
-   `OpenCore.qcow2`; extraímos com `libguestfs` (`guestfish`/`guestmount`) ou
-   `mtools` (`mcopy`).
+   `OpenCore.qcow2`; `oc-image.sh` monta a imagem via **`qemu-nbd`** (do
+   `qemu-utils`, sem libguestfs) — requer root + módulo `nbd`.
 3. **Injeção** — [`reimsctl-efi::set_platform_identity`](../reimsctl/crates/efi/src/lib.rs)
    grava `PlatformInfo → Generic` (`SystemSerialNumber`, `MLB`, `SystemUUID`, `ROM`)
    com a identidade única da VM (CLI: `reimsctl identity-inject <config.plist>`).

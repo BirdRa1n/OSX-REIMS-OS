@@ -15,9 +15,7 @@ mesa-vulkan-drivers
 vulkan-tools
 libvulkan1
 
-# manuseio da imagem OpenCore (extrair/injetar config.plist na qcow2)
-libguestfs-tools
-mtools
+# (manuseio da OpenCore.qcow2 usa qemu-nbd, já incluso no qemu-utils acima)
 
 # rede/utilidades
 git
