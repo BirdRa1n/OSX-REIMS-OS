@@ -1,7 +1,7 @@
 //! reimsctl — binário do gerenciador de VMs do OSX-REIMS-OS.
 //!
 //! Uso (fase-0/1, mínimo):
-//!   reimsctl menu                    → mostra o menu principal
+//!   reimsctl console                 → TUI principal (menu interativo)
 //!   reimsctl releases                → lista versões de macOS
 //!   reimsctl identity                → gera uma identidade de VM (JSON)
 //!   reimsctl identity-inject <plist> → gera identidade e injeta no config.plist
@@ -19,11 +19,11 @@ use reimsctl_core::{launch, paths, qemu, release::MacosRelease, vm::VmConfig, St
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let cmd = args.first().map(String::as_str).unwrap_or("menu");
+    let cmd = args.first().map(String::as_str).unwrap_or("console");
 
     match cmd {
-        "menu" => {
-            reimsctl_tui::render_main_menu()?;
+        "console" | "menu" => {
+            console_loop()?;
         }
         "releases" => {
             reimsctl_tui::print_releases();
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
         other => {
             eprintln!("comando desconhecido: {other}");
             eprintln!(
-                "comandos: menu | releases | identity | identity-inject <plist> | gpu-detect | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
+                "comandos: console | releases | identity | identity-inject <plist> | gpu-detect | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
             );
             std::process::exit(2);
         }
@@ -192,6 +192,84 @@ fn vm_provision(store: &Store, name: &str, macos: MacosRelease) -> Result<()> {
         cfg.config_path().display()
     );
     Ok(())
+}
+
+/// Loop do console: desenha a TUI, executa a ação escolhida e repete.
+fn console_loop() -> Result<()> {
+    use reimsctl_tui::Action;
+    loop {
+        let store = Store::new(Store::default_root());
+        let vms = store.list().unwrap_or_default();
+        match reimsctl_tui::run(&vms)? {
+            Action::Quit => break,
+            Action::StartVm(name) => {
+                report(store.load(&name).and_then(|cfg| {
+                    launch::create_disk(&cfg)?;
+                    launch::start(&cfg)
+                }));
+                pause();
+            }
+            Action::CreateVm => {
+                let name = prompt("nome da VM: ")?;
+                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
+                match MacosRelease::parse(&rel) {
+                    Some(m) => report(store.create(&name, m).map(|_| ())),
+                    None => eprintln!("release inválida"),
+                }
+                pause();
+            }
+            Action::ProvisionVm => {
+                let name = prompt("nome da VM: ")?;
+                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
+                match MacosRelease::parse(&rel) {
+                    Some(m) => report(vm_provision(&store, &name, m)),
+                    None => eprintln!("release inválida"),
+                }
+                pause();
+            }
+            Action::FetchMacos => {
+                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
+                let dir = prompt("diretório destino: ")?;
+                match MacosRelease::parse(&rel) {
+                    Some(m) => report(
+                        reimsctl_macos::fetch_recovery(m, std::path::Path::new(&dir)).map(|_| ()),
+                    ),
+                    None => eprintln!("release inválida"),
+                }
+                pause();
+            }
+            Action::Update => {
+                if let Ok(st) = reimsctl_updater::check() {
+                    match st.latest {
+                        Some(v) => println!("disponível: {v}"),
+                        None => println!("atual {} (sem atualização)", st.current),
+                    }
+                }
+                pause();
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prompt(msg: &str) -> Result<String> {
+    use std::io::Write;
+    print!("{msg}");
+    std::io::stdout().flush()?;
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s)?;
+    Ok(s.trim().to_string())
+}
+
+fn pause() {
+    let _ = prompt("[enter para voltar] ");
+}
+
+fn report(r: Result<()>) {
+    match r {
+        Ok(()) => println!("ok"),
+        Err(e) => eprintln!("erro: {e:#}"),
+    }
 }
 
 /// Invoca o `oc-image.sh` (`extract`/`inject`) via bash.
