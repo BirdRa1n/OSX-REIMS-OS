@@ -75,12 +75,17 @@ pub fn run(vms: &[String]) -> Result<Action> {
     let mut out = stdout();
     execute!(out, EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
+    // Limpa a tela alternativa antes do primeiro frame — evita artefatos de
+    // conteúdo "empilhado" quando o terminal não começa em branco.
+    terminal.clear()?;
 
     let res = run_app(&mut terminal, vms);
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    // Restaura o terminal SEMPRE, mesmo se run_app falhar (senão o terminal
+    // fica em raw mode / alternate screen e tudo parece "bugado" depois).
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
     res
 }
 
@@ -92,20 +97,25 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, vms: &[String]) -> Result<Act
     loop {
         terminal.draw(|f| ui(f, &entries, &mut state))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                continue;
-            }
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(Action::Quit),
-                KeyCode::Down | KeyCode::Char('j') => move_sel(&mut state, entries.len(), 1),
-                KeyCode::Up | KeyCode::Char('k') => move_sel(&mut state, entries.len(), -1),
-                KeyCode::Enter => {
-                    let i = state.selected().unwrap_or(0);
-                    return Ok(entries[i].action.clone());
+        match event::read()? {
+            Event::Key(key) => {
+                if key.kind != KeyEventKind::Press {
+                    continue;
                 }
-                _ => {}
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(Action::Quit),
+                    KeyCode::Down | KeyCode::Char('j') => move_sel(&mut state, entries.len(), 1),
+                    KeyCode::Up | KeyCode::Char('k') => move_sel(&mut state, entries.len(), -1),
+                    KeyCode::Enter => {
+                        let i = state.selected().unwrap_or(0);
+                        return Ok(entries[i].action.clone());
+                    }
+                    _ => {}
+                }
             }
+            // Ao redimensionar, limpa para não deixar fantasmas do tamanho antigo.
+            Event::Resize(_, _) => terminal.clear()?,
+            _ => {}
         }
     }
 }
