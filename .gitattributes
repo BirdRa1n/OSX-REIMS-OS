@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Scripts e configs da imagem rodam no Linux: sempre LF, também no checkout no Windows.
+*.sh text eol=lf
+image/** text eol=lf
+scripts/** text eol=lf

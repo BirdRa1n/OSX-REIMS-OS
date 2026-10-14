@@ -1,6 +1,7 @@
-# scripts/ — helpers de build e desenvolvimento
+# scripts/ — build
 
-- `build-iso.sh`   — orquestra o `live-build` de `image/` → ISO (Fase 2).
-- helpers de dev (montar VM de teste, gerar OVMF_VARS por VM, etc.).
+- `build-iso.sh` — compila o `reimsctl`, monta o binário e a versão na imagem e roda o
+  `live-build` de `image/` → `image/OSX-REIMS-OS-<versão>-amd64.iso` (+ `.sha256`).
+  `SKIP_LB=1` só prepara (o CI roda o `lb build` num container `debian:trixie`).
 
-Ver [../docs/ROADMAP.md](../docs/ROADMAP.md).
+Ver [../image/README.md](../image/README.md).

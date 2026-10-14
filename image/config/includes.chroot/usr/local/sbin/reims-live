@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# O tty1 do pendrive: decide pelo reims.mode= da linha do kernel (menu de boot).
+#   install (padrão) → o instalador
+#   rescue           → um shell de root, para diagnóstico e resgate
+#   live             → o sistema ao vivo, sem instalador
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+
+mode=install
+for w in $(cat /proc/cmdline); do
+	case "$w" in reims.mode=*) mode=${w#reims.mode=} ;; esac
+done
+
+plymouth quit 2>/dev/null
+export REIMS_NO_SESSION=1
+
+banner() {
+	clear
+	printf '\033[1m%s %s · %s\033[0m\n\n' "$PRODUCT" "$VERSION" "$1"
+	printf '%b\n\n' "$2"
+}
+
+case "$mode" in
+rescue)
+	banner "rescue console" "A root shell on the USB stick's system. The installed disk is not mounted.\n\
+  reimsctl diagnostics   a full report of this computer\n\
+  reimsctl hw report     hardware and graphics\n\
+  exit                   restart the computer"
+	bash -l
+	systemctl reboot
+	;;
+live)
+	banner "live system" "Nothing is installed from here. reimsctl hw report shows the hardware;\n\
+reims-installer starts the installer; exit restarts the computer."
+	bash -l
+	systemctl reboot
+	;;
+*)
+	/usr/local/sbin/reims-installer
+	# o instalador só volta se alguém sair dele por um terminal.
+	bash -l
+	;;
+esac

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Depois de um boot que não chegou à sessão, o menu do GRUB aparece sozinho por
+# alguns segundos. O reims-boot-ok.service grava reims_boot_ok=1 a cada boot
+# bem-sucedido; aqui o GRUB o zera antes de iniciar.
+cat <<'GRUB'
+load_env reims_boot_ok
+if [ "${reims_boot_ok}" != "1" ]; then
+  set timeout_style=menu
+  set timeout=5
+fi
+set reims_boot_ok=0
+save_env reims_boot_ok
+GRUB

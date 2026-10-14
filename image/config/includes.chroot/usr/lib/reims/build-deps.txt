@@ -1,0 +1,45 @@
+# Pacotes que o build do Reims vGPU (scripts/install-ctl.sh do upstream) precisa.
+# O first setup os instala como root; o reims-prepare só confere.
+# Mantenha alinhado com apt_pkgs em scripts/install-ctl.sh do reims-vgpu.
+build-essential
+git
+curl
+ca-certificates
+pkg-config
+python3
+python3-venv
+ninja-build
+flex
+bison
+bzip2
+cmake
+clang
+lld
+binutils
+libglib2.0-dev
+libpixman-1-dev
+libslirp-dev
+zlib1g-dev
+libfdt-dev
+libpipewire-0.3-dev
+libpulse-dev
+libasound2-dev
+libvulkan1
+libx11-dev
+libxext-dev
+libxrandr-dev
+libxcursor-dev
+libxi-dev
+libxfixes-dev
+libxss-dev
+libxtst-dev
+libxkbcommon-dev
+libwayland-dev
+libwayland-bin
+libdecor-0-dev
+libegl-dev
+libgl-dev
+libdrm-dev
+libgbm-dev
+libdbus-1-dev
+libudev-dev

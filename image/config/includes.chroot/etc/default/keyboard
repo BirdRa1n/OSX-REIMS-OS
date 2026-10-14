@@ -1,0 +1,6 @@
+# Layout do teclado (console e sessão Wayland). O instalador não pergunta: us.
+XKBMODEL="pc105"
+XKBLAYOUT="us"
+XKBVARIANT=""
+XKBOPTIONS=""
+BACKSPACE="guess"

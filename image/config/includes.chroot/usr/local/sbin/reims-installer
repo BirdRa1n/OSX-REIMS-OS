@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# Instalador do appliance: roda no sistema live, como root, no tty1.
+#
+# Pergunta só o necessário — disco, confirmação (ERASE), nome do computador e a
+# senha do usuário da sessão — e grava o sistema do pendrive no disco, sem
+# precisar de internet: GPT com a partição de boot UEFI (512 MB) e a do sistema
+# (onde também ficam as VMs), GRUB UEFI e o primeiro setup marcado para o boot.
+set -uo pipefail
+
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+
+TITLE="$PRODUCT $VERSION"
+LOG=/var/log/reims-installer.log
+TARGET=/target
+MEDIUM=/run/live/medium
+SQUASH="$MEDIUM/live/filesystem.squashfs"
+
+FAILFILE=/run/reims-installer.failed
+
+DISK="" DISK_DESC="" HOSTNAME_NEW="" PASSWORD=""
+
+wt() {
+	whiptail --title "$TITLE" --backtitle "$PRODUCT installer" "$@" 3>&1 1>&2 2>&3
+}
+
+log() { printf '%s %s\n' "$(date +%T)" "$*" >>"$LOG"; }
+
+# ------------------------------------------------------------------ desistência
+
+open_terminal() {
+	clear
+	echo "Type exit to come back to the installer."
+	REIMS_NO_SESSION=1 bash -l
+}
+
+# O usuário desistiu de uma pergunta: nada foi alterado ainda.
+stopped() {
+	local c
+	c=$(wt --menu "The installation was stopped. No disk has been changed.\n\nWhat now?" 15 66 3 \
+		again "Answer the questions again" \
+		terminal "Open a terminal" \
+		reboot "Restart the computer") || c=again
+	case "$c" in
+	terminal) open_terminal ;;
+	reboot) systemctl reboot; exit 0 ;;
+	esac
+}
+
+# ------------------------------------------------------------------ perguntas
+
+welcome() {
+	wt --ok-button "Ok" --msgbox "This installs $PRODUCT $VERSION on this computer.
+
+$PRODUCT is a dedicated system: it takes a whole disk and it is not \
+meant to share the computer with another operating system.
+
+After installing, the first start finishes the setup over the network: \
+it installs the graphics drivers and prepares the VM manager.
+
+A wired network connection is required for that step." 17 72
+}
+
+# O disco de onde o sistema live iniciou (o pendrive), que nunca é oferecido.
+live_disk() {
+	local src
+	src=$(findmnt -no SOURCE "$MEDIUM" 2>/dev/null) || return 0
+	[ -n "$src" ] && lsblk -no PKNAME "$src" 2>/dev/null | head -n1
+}
+
+gb() { awk -v b="$1" 'BEGIN { printf "%.0f", b / 1000000000 }'; }
+
+choose_disk() {
+	local live items=() name size type ro model
+	live=$(live_disk)
+	while read -r name size type ro; do
+		[ "$type" = disk ] || continue
+		[ "$ro" = 0 ] || continue
+		[ "$(basename "$name")" = "$live" ] && continue
+		case "$(basename "$name")" in zram* | loop* | sr*) continue ;; esac
+		model=$(lsblk -dno MODEL "$name" 2>/dev/null | sed 's/ *$//')
+		items+=("$name" "$(gb "$size") GB  ${model:-disk}")
+	done < <(lsblk -dbnp -e 1,7,11 -o NAME,SIZE,TYPE,RO 2>/dev/null)
+
+	if [ ${#items[@]} -eq 0 ]; then
+		wt --msgbox "No disk to install on was found.\n\nConnect a disk of at least $MIN_DISK_GB GB and try again." 11 64
+		return 1
+	fi
+	while :; do
+		DISK=$(wt --menu "Choose the disk to install $PRODUCT on.\n\nEverything on it will be erased." 18 72 8 "${items[@]}") || return 1
+		size=$(lsblk -dbno SIZE "$DISK")
+		DISK_DESC="$(gb "$size") GB  $(lsblk -dno MODEL "$DISK" | sed 's/ *$//')"
+		if [ "$(gb "$size")" -lt "$MIN_DISK_GB" ]; then
+			wt --msgbox "$DISK ($DISK_DESC) is too small: $PRODUCT needs at least $MIN_DISK_GB GB." 10 66
+			continue
+		fi
+		if [ "$(gb "$size")" -lt "$REC_DISK_GB" ]; then
+			wt --defaultno --yesno "$DISK ($DISK_DESC) is smaller than the recommended $REC_DISK_GB GB.\n\nEach macOS VM takes tens of GB on this same disk.\n\nUse it anyway?" 13 66 || continue
+		fi
+		return 0
+	done
+}
+
+confirm_erase() {
+	local a
+	while :; do
+		a=$(wt --inputbox "All data on $DISK ($DISK_DESC) will be erased, with no way back.\n\nType ERASE to continue, or leave it empty to go back." 13 70 "") || return 1
+		[ -z "$a" ] && return 1
+		[ "${a^^}" = ERASE ] && return 0
+	done
+}
+
+ask_hostname() {
+	local h
+	while :; do
+		h=$(wt --inputbox "The name of this computer on the network:" 10 64 "$DEFAULT_HOSTNAME") || return 1
+		h=${h,,}
+		if [[ $h =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+			HOSTNAME_NEW=$h
+			return 0
+		fi
+		wt --msgbox "Use letters, digits and hyphens (not at the start or the end), up to 63 characters." 9 64
+	done
+}
+
+ask_password() {
+	local p1 p2
+	while :; do
+		p1=$(wt --passwordbox "The password of the user $USER_NAME.\n\nIt is also the administrator (sudo) password, and the one the VM manager asks for when it needs it.\n\nPrefer plain letters and digits: the keyboard layout is US." 15 70) || return 1
+		if [ -z "$p1" ]; then
+			wt --msgbox "The password cannot be empty." 8 50
+			continue
+		fi
+		p2=$(wt --passwordbox "Type the password again:" 9 60) || return 1
+		if [ "$p1" != "$p2" ]; then
+			wt --msgbox "The passwords do not match. Type them again." 8 56
+			continue
+		fi
+		PASSWORD=$p1
+		return 0
+	done
+}
+
+# ------------------------------------------------------------------ instalação
+
+part() { # DISCO N → partição N (nvme0n1p1, mmcblk0p1, sda1)
+	case "$1" in
+	*[0-9]) echo "${1}p$2" ;;
+	*) echo "${1}$2" ;;
+	esac
+}
+
+# Dentro da barra de progresso (um subshell num pipe): só registra e sai; a tela
+# de erro é mostrada por main, fora do pipe.
+abort() {
+	log "FAILED: $*"
+	echo "$*" >"$FAILFILE"
+	exit 1
+}
+
+failed() {
+	cleanup_mounts
+	local c
+	c=$(wt --menu "The installation failed while: $*\n\nThe details are in $LOG." 15 72 3 \
+		terminal "Open a terminal (to read the log)" \
+		again "Start the installer again" \
+		reboot "Restart the computer") || c=again
+	case "$c" in
+	terminal) open_terminal; exec "$0" ;;
+	reboot) systemctl reboot; exit 0 ;;
+	*) exec "$0" ;;
+	esac
+}
+
+run() { # DESCRIÇÃO CMD... — loga a saída; falha interrompe a instalação
+	local what=$1
+	shift
+	log "+ $*"
+	"$@" >>"$LOG" 2>&1 || abort "$what"
+}
+
+in_target() { chroot "$TARGET" /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 "$@"; }
+
+cleanup_mounts() {
+	local m
+	for m in sys/firmware/efi/efivars sys proc dev/pts dev run boot/efi; do
+		mountpoint -q "$TARGET/$m" && umount -l "$TARGET/$m"
+	done
+	mountpoint -q "$TARGET" && umount -l "$TARGET"
+	true
+}
+
+gauge() { printf 'XXX\n%s\n%s\nXXX\n' "$1" "$2"; }
+
+install_system() {
+	local esp root kver
+	esp=$(part "$DISK" 1)
+	root=$(part "$DISK" 2)
+
+	gauge 2 "Preparing $DISK"
+	swapoff -a 2>/dev/null
+	for p in $(lsblk -lnpo NAME "$DISK" | tail -n +2); do umount -l "$p" 2>/dev/null; done
+	run "erasing the disk" wipefs -af "$DISK"
+	run "erasing the disk" sgdisk --zap-all "$DISK"
+	run "partitioning" sgdisk -n1:1MiB:+512MiB -t1:ef00 -c1:EFI \
+		-n2:0:0 -t2:8304 -c2:"$PRODUCT" "$DISK"
+	partprobe "$DISK" 2>/dev/null
+	udevadm settle
+	sleep 1
+	run "formatting the boot partition" mkfs.vfat -F 32 -n EFI "$esp"
+	run "formatting the system partition" mkfs.ext4 -F -q -L reims-root "$root"
+	mkdir -p "$TARGET"
+	run "mounting the system partition" mount "$root" "$TARGET"
+
+	gauge 8 "Copying the system"
+	[ -f "$SQUASH" ] || abort "finding $SQUASH"
+	log "+ unsquashfs $SQUASH"
+	# -percentage: um número por linha, de 0 a 100 → 8..80 na barra.
+	unsquashfs -f -percentage -d "$TARGET" "$SQUASH" 2>>"$LOG" | while read -r pct; do
+		case "$pct" in '' | *[!0-9]*) continue ;; esac
+		gauge $((8 + pct * 72 / 100)) "Copying the system ($pct%)"
+	done
+	[ -x "$TARGET/bin/bash" ] || abort "copying the system"
+
+	gauge 81 "Configuring the system"
+	mkdir -p "$TARGET/boot/efi"
+	run "mounting the boot partition" mount "$esp" "$TARGET/boot/efi"
+	for m in dev dev/pts proc sys run; do
+		mkdir -p "$TARGET/$m"
+		run "mounting /$m" mount --bind "/$m" "$TARGET/$m"
+	done
+	if [ -d /sys/firmware/efi/efivars ]; then
+		mount --bind /sys/firmware/efi/efivars "$TARGET/sys/firmware/efi/efivars" 2>>"$LOG"
+	fi
+
+	# o kernel: a imagem do sistema o traz em /boot; senão, o do pendrive.
+	kver=$(basename "$(ls -d "$TARGET"/lib/modules/* 2>/dev/null | sort -V | tail -n1)")
+	if [ ! -e "$TARGET/boot/vmlinuz-$kver" ]; then
+		run "copying the kernel" cp "$(ls "$MEDIUM"/live/vmlinuz* | head -n1)" "$TARGET/boot/vmlinuz-$kver"
+	fi
+
+	cat >"$TARGET/etc/fstab" <<EOF
+# $PRODUCT
+UUID=$(blkid -s UUID -o value "$root")  /          ext4  errors=remount-ro  0 1
+UUID=$(blkid -s UUID -o value "$esp")  /boot/efi  vfat  umask=0077         0 1
+EOF
+	echo "$HOSTNAME_NEW" >"$TARGET/etc/hostname"
+	cat >"$TARGET/etc/hosts" <<EOF
+127.0.0.1	localhost
+127.0.1.1	$HOSTNAME_NEW
+::1		localhost ip6-localhost ip6-loopback
+EOF
+
+	gauge 84 "Removing the live system's parts"
+	in_target dpkg --purge live-boot live-boot-initramfs-tools live-config \
+		live-config-systemd live-tools >>"$LOG" 2>&1 || true
+
+	gauge 86 "Creating the user $USER_NAME"
+	local groups=sudo g
+	for g in kvm render video input audio; do
+		in_target getent group "$g" >/dev/null && groups="$groups,$g"
+	done
+	run "creating the user" in_target useradd -m -s /bin/bash -G "$groups" "$USER_NAME"
+	printf '%s:%s\n' "$USER_NAME" "$PASSWORD" | in_target chpasswd >>"$LOG" 2>&1 ||
+		abort "setting the password"
+	in_target passwd -l root >>"$LOG" 2>&1
+
+	gauge 88 "Configuring SSH and the machine identity"
+	: >"$TARGET/etc/machine-id"
+	rm -f "$TARGET/var/lib/dbus/machine-id"
+	rm -f "$TARGET"/etc/ssh/ssh_host_*
+	run "making the SSH keys" in_target ssh-keygen -A
+
+	gauge 90 "Making the boot image"
+	if [ -e "$TARGET/boot/initrd.img-$kver" ]; then
+		run "making the boot image" in_target update-initramfs -u -k "$kver"
+	else
+		run "making the boot image" in_target update-initramfs -c -k "$kver"
+	fi
+
+	gauge 94 "Installing the boot loader"
+	run "installing GRUB" in_target grub-install --target=x86_64-efi \
+		--efi-directory=/boot/efi --bootloader-id="$BOOTLOADER_ID" --recheck
+	# cópia no caminho padrão (EFI/BOOT/BOOTX64.EFI): firmware que esquece a entrada da NVRAM.
+	run "installing GRUB" in_target grub-install --target=x86_64-efi \
+		--efi-directory=/boot/efi --removable --no-nvram
+	run "configuring GRUB" in_target update-grub
+	in_target grub-editenv /boot/grub/grubenv set reims_boot_ok=1 >>"$LOG" 2>&1
+
+	mkdir -p "$TARGET$STATE_DIR"
+	printf 'version=%s\ndate=%s\ndisk=%s\n' "$VERSION" "$(date -u +%FT%TZ)" "$DISK_DESC" \
+		>"$TARGET$STATE_DIR/installed"
+	cp "$LOG" "$TARGET/var/log/reims-installer.log" 2>/dev/null
+
+	gauge 98 "Finishing"
+	sync
+	cleanup_mounts
+	gauge 100 "Done"
+	sleep 1
+}
+
+# ------------------------------------------------------------------ fluxo
+
+main() {
+	: >"$LOG"
+	log "$PRODUCT $VERSION installer"
+	while :; do
+		welcome &&
+			choose_disk &&
+			confirm_erase &&
+			ask_hostname &&
+			ask_password &&
+			break
+		stopped
+	done
+	log "disk=$DISK ($DISK_DESC) hostname=$HOSTNAME_NEW"
+	rm -f "$FAILFILE"
+	install_system | whiptail --title "$TITLE" --backtitle "$PRODUCT installer" \
+		--gauge "Installing $PRODUCT, please wait..." 8 72 0
+	PASSWORD=""
+	[ -f "$FAILFILE" ] && failed "$(cat "$FAILFILE")"
+	wt --ok-button "Ok" --msgbox "$PRODUCT is installed.\n\nRemove the USB stick, then press Ok to restart the computer.\n\nOn the first start, keep the network cable connected." 12 66
+	systemctl reboot
+}
+
+main "$@"

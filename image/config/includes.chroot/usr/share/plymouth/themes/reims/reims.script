@@ -1,0 +1,39 @@
+# Tela de carregamento: o nome, "Starting ..." e três pontos que pulsam.
+Window.SetBackgroundTopColor(0.043, 0.059, 0.090);
+Window.SetBackgroundBottomColor(0.043, 0.059, 0.090);
+
+w = Window.GetWidth();
+h = Window.GetHeight();
+
+title = Image.Text("OSX-REIMS-OS", 0.353, 0.820, 0.902, 1, "DejaVu Sans Bold 36");
+title_s = Sprite(title);
+title_s.SetPosition(w / 2 - title.GetWidth() / 2, h / 2 - title.GetHeight() - 10, 1);
+
+sub = Image.Text("Starting OSX-REIMS-OS", 0.49, 0.53, 0.60, 1, "DejaVu Sans 14");
+sub_s = Sprite(sub);
+sub_s.SetPosition(w / 2 - sub.GetWidth() / 2, h / 2 + 14, 1);
+
+for (i = 0; i < 3; i++) {
+  dot[i] = Image.Text("●", 0.353, 0.820, 0.902, 1, "DejaVu Sans 14");
+  dot_s[i] = Sprite(dot[i]);
+  dot_s[i].SetPosition(w / 2 - 24 + i * 20, h / 2 + 48, 1);
+}
+
+frame = 0;
+fun refresh() {
+  frame++;
+  for (i = 0; i < 3; i++) {
+    phase = Math.Sin((frame / 12) - i * 0.9);
+    dot_s[i].SetOpacity(0.35 + 0.65 * (phase + 1) / 2);
+  }
+}
+Plymouth.SetRefreshFunction(refresh);
+
+# mensagens do sistema (ex.: uma verificação de disco) aparecem embaixo.
+msg_s = Sprite();
+fun message(text) {
+  m = Image.Text(text, 0.49, 0.53, 0.60, 1, "DejaVu Sans 11");
+  msg_s.SetImage(m);
+  msg_s.SetPosition(w / 2 - m.GetWidth() / 2, h - 60, 1);
+}
+Plymouth.SetMessageFunction(message);

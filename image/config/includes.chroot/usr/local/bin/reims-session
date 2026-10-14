@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# A sessão do appliance (usuário da sessão, tty1, login automático).
+#
+# Abre o console do gerenciador em tela cheia, num terminal (foot) dentro do
+# compositor Wayland kiosk (cage). As janelas das VMs abrem no mesmo compositor,
+# em tela cheia, por cima do console; desligar o macOS traz o console de volta.
+# Ao sair do console, o menu da sessão: Enter de novo, s terminal, r reinicia,
+# p desliga. Sem gráficos utilizáveis, o console roda direto no tty.
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+
+export REIMS_NO_SESSION=1
+graphics=$(head -n1 "$STATE_DIR/graphics" 2>/dev/null)
+fallback=0
+[ "$graphics" = FAIL ] && fallback=1
+command -v cage >/dev/null 2>&1 || fallback=1
+
+plymouth quit 2>/dev/null
+
+# O teclado da sessão Wayland segue /etc/default/keyboard (padrão: us).
+if [ -r /etc/default/keyboard ]; then
+	# shellcheck disable=SC1091
+	. /etc/default/keyboard
+	export XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-us}" XKB_DEFAULT_VARIANT="${XKBVARIANT:-}"
+fi
+
+console() { # [--autostart]
+	if [ "$fallback" = 0 ]; then
+		local start rc
+		start=$(date +%s)
+		cage -d -s -- foot --title "$PRODUCT" reimsctl console "$@" 2>/tmp/reims-cage.log
+		rc=$?
+		# o compositor não abriu (sem GPU utilizável): o console vai para o tty.
+		if [ $rc -ne 0 ] && [ $(($(date +%s) - start)) -lt 3 ]; then
+			fallback=1
+			echo "The graphical session did not start (see /tmp/reims-cage.log); using the text console."
+			sleep 2
+			reimsctl console "$@"
+		fi
+	else
+		reimsctl console "$@"
+	fi
+}
+
+session_menu() {
+	while :; do
+		clear
+		printf '\033[1m%s %s · session\033[0m\n\n' "$PRODUCT" "$VERSION"
+		printf '  Enter  Open the console again\n'
+		printf '  s      Open a terminal (advanced)\n'
+		printf '  r      Restart the computer\n'
+		printf '  p      Shut the computer down\n\n'
+		IFS= read -rsn1 k
+		case "$k" in
+		'') return ;;
+		s | S)
+			clear
+			echo "A terminal as $USER_NAME (sudo for administrator). Type exit to come back."
+			bash -l
+			;;
+		r | R) systemctl reboot; sleep 30 ;;
+		p | P) systemctl poweroff; sleep 30 ;;
+		esac
+	done
+}
+
+console --autostart
+while :; do
+	session_menu
+	console
+done

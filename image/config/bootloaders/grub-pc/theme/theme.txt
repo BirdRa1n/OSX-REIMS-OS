@@ -1,0 +1,62 @@
+# Tema do menu de boot do pendrive (só texto e cores: sem imagens).
+title-text: ""
+desktop-color: "#0b0f17"
+terminal-font: "Unifont Regular 16"
+terminal-box: ""
+
++ label {
+	top = 16%
+	left = 0
+	width = 100%
+	align = "center"
+	text = "OSX-REIMS-OS"
+	color = "#5ad1e6"
+	font = "Unifont Regular 16"
+}
+
++ label {
+	top = 16%+24
+	left = 0
+	width = 100%
+	align = "center"
+	text = "macOS VM appliance · Reims vGPU"
+	color = "#7d8799"
+	font = "Unifont Regular 16"
+}
+
++ boot_menu {
+	left = 20%
+	top = 34%
+	width = 60%
+	height = 40%
+	item_font = "Unifont Regular 16"
+	item_color = "#c9d1d9"
+	selected_item_font = "Unifont Regular 16"
+	selected_item_color = "#5ad1e6"
+	item_height = 24
+	item_spacing = 6
+	icon_width = 0
+	icon_height = 0
+	item_icon_space = 0
+}
+
++ label {
+	id = "__timeout__"
+	top = 82%
+	left = 0
+	width = 100%
+	align = "center"
+	color = "#7d8799"
+	font = "Unifont Regular 16"
+	text = "The highlighted entry starts in %d s"
+}
+
++ label {
+	top = 82%+28
+	left = 0
+	width = 100%
+	align = "center"
+	color = "#4b5361"
+	font = "Unifont Regular 16"
+	text = "Enter: start · e: edit · c: command line"
+}
