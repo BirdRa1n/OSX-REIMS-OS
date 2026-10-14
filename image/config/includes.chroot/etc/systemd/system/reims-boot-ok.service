@@ -1,0 +1,11 @@
+[Unit]
+Description=OSX-REIMS-OS boot succeeded (keeps the boot menu hidden next time)
+ConditionPathIsDirectory=!/run/live
+After=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/grub-editenv /boot/grub/grubenv set reims_boot_ok=1
+
+[Install]
+WantedBy=multi-user.target

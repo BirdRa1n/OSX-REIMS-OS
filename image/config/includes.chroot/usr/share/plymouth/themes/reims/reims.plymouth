@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=OSX-REIMS-OS
+Description=Loading screen of OSX-REIMS-OS
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/reims
+ScriptFile=/usr/share/plymouth/themes/reims/reims.script

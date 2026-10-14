@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# Primeiro setup: roda como root no tty1, na primeira inicialização depois da
+# instalação (reims-firstboot.service), antes da sessão.
+#
+#   1. confere a rede cabeada (DHCP);
+#   2. examina o hardware: processador, virtualização, KVM, IOMMU e cada GPU;
+#   3. mostra o plano de drivers e firmware do Debian e só instala com confirmação
+#      (NVIDIA só com autorização; CUDA nunca); IOMMU é opcional;
+#   4. instala o que o gerenciador precisa para compilar o Reims vGPU;
+#   5. valida os gráficos de verdade: READY, SOFTWARE ou FAIL.
+#
+# Reinicia uma vez, sozinho, quando o driver precisa ler o firmware, e continua.
+#   reims-firstboot --force   refaz o setup (depois de trocar a GPU, por exemplo)
+set -uo pipefail
+
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+
+TITLE="$PRODUCT $VERSION"
+LOG=/var/log/reims-firstboot.log
+STAGE="$STATE_DIR/firstboot.stage"
+DONE="$STATE_DIR/firstboot.done"
+REIMSCTL=/usr/local/bin/reimsctl
+
+if [ "$(id -u)" -ne 0 ]; then
+	echo "reims-firstboot: run it as root (sudo reims-firstboot --force)" >&2
+	exit 1
+fi
+mkdir -p "$STATE_DIR"
+if [ "${1:-}" = --force ]; then
+	rm -f "$DONE" "$STAGE"
+elif [ -f "$DONE" ]; then
+	echo "The first setup is already finished (sudo reims-firstboot --force runs it again)."
+	exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+wt() { whiptail --title "$TITLE" --backtitle "$PRODUCT first setup" "$@" 3>&1 1>&2 2>&3; }
+log() { printf '%s %s\n' "$(date +%T)" "$*" >>"$LOG"; }
+step() { # N TEXTO: título de uma etapa entre telas
+	clear
+	printf '\033[1m%s first setup · step %s of 5\033[0m\n%s\n\n' "$PRODUCT" "$1" "$2"
+}
+
+open_terminal() {
+	clear
+	echo "Type exit to come back to the first setup."
+	REIMS_NO_SESSION=1 bash -l
+}
+
+apt_install() { # pacotes... (mostra o progresso na tela e no log)
+	log "+ apt-get install $*"
+	apt-get install -y --no-install-recommends "$@" 2>&1 | tee -a "$LOG"
+	return "${PIPESTATUS[0]}"
+}
+
+# ------------------------------------------------------------------ 1. rede
+
+online() {
+	curl -fsS --max-time 10 -o /dev/null https://deb.debian.org/debian/dists/trixie/Release 2>>"$LOG"
+}
+
+check_network() {
+	step 1 "Checking the network"
+	for _ in $(seq 1 15); do
+		online && return 0
+		printf '.'
+		sleep 2
+	done
+	while ! online; do
+		local c
+		c=$(wt --menu "There is no internet connection.\n\nThe first setup needs a wired (Ethernet) network with automatic addressing (DHCP); Wi-Fi is not supported. Connect the cable to a router and try again." 17 72 3 \
+			retry "Try again" \
+			terminal "Open a terminal" \
+			poweroff "Shut the computer down") || c=retry
+		case "$c" in
+		terminal) open_terminal ;;
+		poweroff) systemctl poweroff; exit 0 ;;
+		esac
+		step 1 "Checking the network"
+	done
+}
+
+# ------------------------------------------------------------------ 2. hardware
+
+examine_hardware() {
+	step 2 "Examining the hardware"
+	"$REIMSCTL" hw detect --save >/tmp/reims-hw.txt 2>>"$LOG"
+	cat /tmp/reims-hw.txt >>"$LOG"
+	local note=""
+	if ! [ -e /dev/kvm ]; then
+		note="\n\nWARNING: there is no hardware virtualization (KVM). Enable Intel VT-x or AMD-V (SVM) in the firmware: without it, macOS cannot run."
+	fi
+	wt --msgbox "This is what was found on this computer:\n\n$(cat /tmp/reims-hw.txt)$note" 22 78
+}
+
+# ------------------------------------------------------------------ 3. drivers
+
+NEED_REBOOT=0
+NEW_FIRMWARE=0
+
+nvidia_package() {
+	apt_install nvidia-detect >/dev/null || {
+		echo nvidia-driver
+		return
+	}
+	nvidia-detect 2>/dev/null | awk '/recommended to install the/{getline; gsub(/ /, ""); print; exit}' |
+		grep . || echo nvidia-driver
+}
+
+install_drivers() {
+	step 3 "Graphics drivers"
+	log "+ apt-get update"
+	apt-get update 2>&1 | tee -a "$LOG"
+
+	local pkgs nvidia iommu plan
+	mapfile -t pkgs < <("$REIMSCTL" hw plan --packages)
+	mapfile -t nvidia < <("$REIMSCTL" hw plan --nvidia-packages | grep .)
+	iommu=$("$REIMSCTL" hw plan --iommu-args)
+	plan=$("$REIMSCTL" hw plan)
+	log "$plan"
+
+	if [ ${#nvidia[@]} -gt 0 ]; then
+		if wt --yesno "This computer has an NVIDIA GPU.\n\nIts driver is NVIDIA's proprietary one, from Debian's non-free repository (chosen by nvidia-detect), with NVIDIA's Vulkan. CUDA is never installed.\n\nInstall the NVIDIA driver?" 15 72; then
+			local drv
+			drv=$(nvidia_package)
+			log "nvidia-detect: $drv"
+			pkgs+=("${nvidia[@]/nvidia-driver/$drv}")
+			NEED_REBOOT=1
+		else
+			plan="$plan\n\n(the NVIDIA driver was declined: that GPU gets no acceleration)"
+		fi
+	fi
+
+	if [ -n "$iommu" ]; then
+		if wt --defaultno --yesno "The firmware offers IOMMU (VT-d / AMD-Vi), and it is off in the kernel.\n\nReims vGPU does not need it. Turning it on adds this to the kernel line, and needs a restart:\n\n  $iommu\n\nTurn IOMMU on?" 16 72; then
+			cat >/etc/default/grub.d/reims-iommu.cfg <<EOF
+# IOMMU, ligado no first setup.
+GRUB_CMDLINE_LINUX_DEFAULT="\$GRUB_CMDLINE_LINUX_DEFAULT $iommu"
+EOF
+			update-grub >>"$LOG" 2>&1
+			NEED_REBOOT=1
+		fi
+	fi
+
+	local p
+	for p in "${pkgs[@]}"; do
+		case "$p" in firmware-*)
+			dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || NEW_FIRMWARE=1
+			;;
+		esac
+	done
+
+	while :; do
+		if wt --scrolltext --yes-button "Install" --no-button "Not now" --yesno "The plan for this computer's graphics:\n\n$plan\n\nTo install: ${pkgs[*]}\n\nInstall it now?" 22 78; then
+			break
+		fi
+		local c
+		c=$(wt --menu "Nothing was installed. Without the drivers the graphics will most likely not validate." 13 70 3 \
+			plan "Show the plan again" \
+			terminal "Open a terminal" \
+			skip "Continue without installing") || c=plan
+		case "$c" in
+		terminal) open_terminal ;;
+		skip) return 0 ;;
+		esac
+	done
+	step 3 "Installing the graphics drivers"
+	apt_install "${pkgs[@]}" || {
+		wt --msgbox "Installing the drivers failed. The details are in $LOG.\n\nThe setup continues; run sudo reims-firstboot --force to try again." 12 70
+	}
+}
+
+# ------------------------------------------------------------------ 4. ferramentas
+
+install_manager_tools() {
+	step 4 "Installing what the VM manager needs to build Reims vGPU"
+	local deps
+	mapfile -t deps < <(grep -v '^#' /usr/lib/reims/build-deps.txt | grep .)
+	apt_install "${deps[@]}" || {
+		wt --msgbox "Installing the build tools failed. The details are in $LOG.\n\nThe VM manager tries again when it prepares itself." 11 70
+	}
+	mkdir -p "$REIMS_VGPU_DIR"
+	chown "$USER_NAME:$USER_NAME" "$REIMS_VGPU_DIR"
+	# o usuário da sessão nos grupos de KVM e da GPU (a instalação já faz; garante).
+	local g
+	for g in kvm render video input; do
+		getent group "$g" >/dev/null && usermod -aG "$g" "$USER_NAME"
+	done
+	sysctl --system >/dev/null 2>&1
+	modprobe udmabuf 2>/dev/null
+}
+
+# ------------------------------------------------------------------ 5. validação
+
+validate_graphics() {
+	step 5 "Validating the graphics"
+	"$REIMSCTL" hw validate --save >/tmp/reims-validate.txt 2>&1
+	local rc=$?
+	cat /tmp/reims-validate.txt >>"$LOG"
+	return $rc
+}
+
+maybe_reboot() {
+	# firmware lido só quando o driver inicia: um reinício, uma vez.
+	[ "$(cat "$STAGE" 2>/dev/null)" = after-reboot ] && return 0
+	if [ "$NEED_REBOOT" = 1 ] || { [ "$NEW_FIRMWARE" = 1 ] && ! validate_graphics; }; then
+		echo after-reboot >"$STAGE"
+		log "restarting to load the graphics firmware"
+		wt --infobox "The graphics driver needs a restart to load its firmware.\n\nThe computer restarts now, and the first setup continues by itself." 10 70
+		sleep 5
+		systemctl reboot
+		exit 0
+	fi
+}
+
+finish() {
+	local verdict msg
+	verdict=$(head -n1 "$STATE_DIR/graphics" 2>/dev/null)
+	msg=$(sed -n 2p "$STATE_DIR/graphics" 2>/dev/null)
+	rm -f "$STAGE"
+	touch "$DONE"
+	log "finished: $verdict $msg"
+	case "$verdict" in
+	READY)
+		wt --msgbox "First setup is finished.\n\n$msg\n\nThe VM manager opens next. The first time, it shows its license and asks the questions it needs to prepare itself; that step downloads and builds Reims vGPU and takes a while." 15 74
+		;;
+	SOFTWARE)
+		wt --msgbox "First setup is finished.\n\nGraphics: software rendering only ($msg).\n\nThere is no GPU macOS can use: VMs will be far too slow. Check the GPU and its driver (reimsctl hw validate), then run sudo reims-firstboot --force." 15 74
+		;;
+	*)
+		wt --msgbox "First setup is finished, but the graphics did not validate (FAIL).\n\n$msg\n\nThe VM manager is not prepared. See reimsctl hw validate and reimsctl diagnostics --save, then run sudo reims-firstboot --force." 15 74
+		;;
+	esac
+	clear
+}
+
+main() {
+	plymouth quit 2>/dev/null
+	log "$PRODUCT $VERSION first setup ($(cat "$STAGE" 2>/dev/null || echo start))"
+	if [ "$(cat "$STAGE" 2>/dev/null)" = after-reboot ]; then
+		wt --msgbox "Continuing the first setup after the restart." 8 60
+		check_network
+		"$REIMSCTL" hw detect --save >/dev/null 2>>"$LOG"
+	else
+		wt --msgbox "Welcome to $PRODUCT $VERSION.\n\nThe first setup prepares this computer, in five steps:\n\n  1. Check the network\n  2. Examine the hardware\n  3. Install the graphics drivers (asks first)\n  4. Install what the VM manager needs\n  5. Validate the graphics\n\nKeep the network cable connected." 19 66
+		check_network
+		examine_hardware
+		install_drivers
+		install_manager_tools
+		maybe_reboot
+	fi
+	validate_graphics
+	finish
+}
+
+main "$@"

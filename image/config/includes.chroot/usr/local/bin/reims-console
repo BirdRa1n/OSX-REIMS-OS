@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Console principal do OSX-REIMS-OS (tty1): roda a TUI do reimsctl.
-# O reims-console.service chama este script; a TUI trata navegação e ações.
-exec "${REIMSCTL:-reimsctl}" console

@@ -1,0 +1,2 @@
+# /dev/udmabuf para o grupo kvm, como no Ubuntu (o usuário da sessão está nele).
+KERNEL=="udmabuf", SUBSYSTEM=="misc", GROUP="kvm", MODE="0660"

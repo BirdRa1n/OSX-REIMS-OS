@@ -2,34 +2,30 @@
 
 Deriva de [ARCHITECTURE.md](ARCHITECTURE.md). Marque `[x]` conforme concluir.
 
-## Fase 0 — Fundações & PoC (sem imagem)
-Provar que o stack roda **na mão** antes de investir em ISO.
+## v0.2 — paridade de fluxo (código pronto, validação pendente)
+- [x] Motor de VM trocado pelo `reims-ctl` do upstream (compilado na máquina, commit fixado).
+- [x] Menu de boot: Install, safe graphics, Advanced/Rescue (rescue, live, check, firmware).
+- [x] Instalador próprio offline: disco (32/128 GB), `ERASE`, hostname, senha; GPT ESP+root.
+- [x] Primeiro setup: rede, hardware, plano de drivers com confirmação, NVIDIA opt-in,
+      IOMMU opcional, reboot único, validação READY/SOFTWARE/FAIL; `--force`.
+- [x] Sessão kiosk (`cage` + `foot`), menu da sessão, fallback em texto.
+- [x] Console: Create (Recovery/Offline/Full), Import, Manage (S/R/F/T), Logs, Maintenance
+      (delete, cache, check, prepare, update/rebuild Reims vGPU), autostart.
+- [x] Preparo em 10 etapas com volta ao commit anterior se o build falhar.
+- [x] `reimsctl hw`, `diagnostics [--save|--splash]`, `version`.
+- [x] Plymouth, GRUB oculto com retorno após boot falho, SSH, kernel dos backports.
 
-- [ ] Ambiente Debian 13 x86_64 com KVM habilitado (`kvm-ok`).
-- [ ] Compilar `reims-vgpu` upstream (Rust + deps QEMU) — pin de versão em `vgpu/`.
-- [ ] Baixar macOS Recovery direto da Apple (`reimsctl/crates/macos`).
-- [ ] Subir VM macOS via QEMU/KVM + OVMF + OpenCore + `-device reims-vgpu-pci`.
-- [ ] Confirmar **GPU acelerada** no guest (não framebuffer básico).
-- [ ] Congelar a linha do QEMU que funciona em `docs/QEMU-LINE.md`.
+## Validação (precisa de uma Debian 13 e de hardware real)
+- [ ] `lb build` completo (o CI roda num container `debian:trixie`): conferir que o
+      live-build usa `config/bootloaders/grub-pc/` também no EFI e que o kernel é achado.
+- [ ] Instalação em disco real e em VM (UEFI), inclusive nvme/mmcblk.
+- [ ] Primeiro setup em Intel, AMD e NVIDIA; o reboot por firmware.
+- [ ] `cage` + `foot` + janela do Reims vGPU (SDL/Wayland) em tela cheia.
+- [ ] Preparo completo (build do QEMU do Reims vGPU) e criação de uma VM até o desktop.
+- [ ] Plymouth (`plymouth-label`) e o GRUB oculto com `reims_boot_ok`.
 
-## Fase 1 — `reimsctl` mínimo (Rust)
-- [ ] `core`: modelo de VM + assembler da linha do QEMU (esqueleto pronto).
-- [ ] `efi`: geração de identidade única (serial/MLB/UUID/ROM/MAC) + injeção OpenCore.
-- [x] `macos`: download do Recovery da Apple (protocolo osrecovery; CLI `fetch-macos`).
-- [ ] `core`: criar/iniciar/parar/listar VM (storage qcow2 + snapshots).
-- [ ] `tui`: menu de console (ratatui).
-- [ ] `cli`: binário `reimsctl` amarrando tudo.
-
-## Fase 2 — Imagem/ISO (live-build)
-- [x] `image/`: live-build Debian 13, sem GUI, console do `reimsctl` no tty1.
-- [x] Instalador Fase 1 (disco + senha) — preseed (a validar em Debian real).
-- [x] `provisioner/`: detecção de GPU, drivers (Intel/AMD Mesa; NVIDIA opt-in),
-      validação Vulkan 1.2+ (deploy do `reims-vgpu` pré-compilado: hook no build-iso).
-- [ ] Validar o build da ISO numa Debian 13 (bash -n só cobre sintaxe).
-- [x] CI (`.github/workflows/iso.yml`) que gera a ISO (workflow_dispatch + tags v*).
-
-## Fase 3 — Atualizações & polimento
-- [ ] `updater`: repo APT próprio assinado + rebuild do reims-vgpu.
-- [ ] Snapshots/rails, monitor de VM, múltiplas VMs.
-- [ ] Testes em hardware real Intel / AMD / NVIDIA.
-- [ ] Docs de usuário + página do produto.
+## Depois
+- [ ] Novo nome do projeto (começa por `brand.sh` e `brand.rs`).
+- [ ] Teclado configurável (hoje `us`).
+- [ ] Secure Boot (shim/grub assinados).
+- [ ] Atualização no lugar (hoje: reinstalar).

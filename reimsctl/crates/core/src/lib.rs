@@ -1,18 +1,19 @@
-//! reimsctl-core — modelo de domínio do gerenciador de VMs.
+//! reimsctl-core — o núcleo do gerenciador do appliance.
 //!
-//! Contém os tipos centrais (GPU, versão de macOS, configuração de VM) e o
-//! *assembler* da linha de comando do QEMU. É a fundação sobre a qual `efi`,
-//! `macos`, `tui` e o binário `cli` se apoiam.
+//! - [`hw`]: detecção do hardware, plano de drivers e validação dos gráficos
+//!   (o mesmo código do first setup);
+//! - [`ctl`]: ponte para o `reims-ctl` do Reims vGPU, que cria e roda as VMs;
+//! - [`state`]: licença, preparo, metadados das VMs, início automático e logs;
+//! - [`diag`]: o relatório de diagnóstico;
+//! - [`brand`]: nomes e caminhos (o projeto vai mudar de nome).
 
-pub mod gpu;
-pub mod launch;
-pub mod paths;
-pub mod qemu;
+pub mod brand;
+pub mod ctl;
+pub mod diag;
+pub mod hw;
 pub mod release;
-pub mod store;
-pub mod vm;
+pub mod state;
+pub mod sys;
 
-pub use gpu::GpuVendor;
+pub use hw::{GpuVendor, Verdict};
 pub use release::MacosRelease;
-pub use store::Store;
-pub use vm::VmConfig;

@@ -1,25 +1,49 @@
-# Pacotes do appliance OSX-REIMS-OS (instalados no chroot da imagem).
+# Pacotes do OSX-REIMS-OS. De propósito, a ISO NÃO traz driver de GPU, firmware
+# de GPU, Vulkan nem o Reims vGPU: o first setup instala o que a máquina precisa,
+# e o gerenciador baixa e compila o Reims vGPU.
 
-# kernel + firmware (Intel/AMD; NVIDIA proprietário é opt-in no provisioner)
+# kernel (dos backports, ver config/archives) e firmware de rede
 linux-image-amd64
-firmware-linux
-firmware-misc-nonfree
+firmware-realtek
+firmware-bnx2
+firmware-bnx2x
 
-# virtualização
-qemu-system-x86
-qemu-utils
-ovmf
+# instalador: particionar, formatar, copiar o sistema, GRUB UEFI
+whiptail
+gdisk
+parted
+dosfstools
+e2fsprogs
+squashfs-tools
+grub-efi-amd64-bin
+grub2-common
+efibootmgr
 
-# Vulkan / Mesa (ANV Intel + RADV AMD)
-mesa-vulkan-drivers
-vulkan-tools
-libvulkan1
+# boot: tela de carregamento
+plymouth
+plymouth-label
+fonts-dejavu-core
 
-# (manuseio da OpenCore.qcow2 usa qemu-nbd, já incluso no qemu-utils acima)
+# sessão: compositor Wayland kiosk + terminal
+cage
+foot
 
-# rede/utilidades
-git
+# rede (DHCP em todas as placas cabeadas) e acesso remoto
+dhcpcd
+openssh-server
 curl
 ca-certificates
+git
+
+# administração e diagnóstico
 sudo
 pciutils
+usbutils
+kmod
+less
+vim
+htop
+atop
+nmon
+iperf3
+bash-completion

@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+# Prepara o ambiente do gerenciador, em 10 etapas, com o usuário da sessão (sem
+# sudo: a senha só é pedida nas etapas que precisam de administrador).
+#
+#   reims-prepare [--pinned|--latest|--ref REF] [--update] [--rebuild] [--log FILE]
+#
+#   --pinned     segue o commit do Reims vGPU fixado por esta versão (padrão)
+#   --latest     segue o commit mais novo do master do Reims vGPU (não testado)
+#   --ref REF    um commit, tag ou branch do Reims vGPU (avançado)
+#   --update     busca o commit escolhido e compila de novo
+#   --rebuild    compila o QEMU do Reims vGPU de novo, do zero, no mesmo commit
+#   --log FILE   acrescenta a saída das etapas a FILE (o console passa o log da ação)
+#
+# Etapas já concluídas são puladas. Se a compilação de um commit novo falhar, o
+# commit anterior volta (e a compilação anterior continua instalada).
+set -uo pipefail
+
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+
+FOLLOW="" REF="" UPDATE=0 REBUILD=0 LOG=""
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--pinned) FOLLOW=pinned ;;
+	--latest) FOLLOW=latest ;;
+	--ref) FOLLOW=ref REF=${2:?--ref needs a value}; shift ;;
+	--update) UPDATE=1 ;;
+	--rebuild) REBUILD=1 ;;
+	--log) LOG=${2:?--log needs a file}; shift ;;
+	-h | --help) sed -n '2,/^set -uo/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'; exit 0 ;;
+	*) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
+	esac
+	shift
+done
+[ -n "$LOG" ] || LOG="${XDG_STATE_HOME:-$HOME/.local/state}/reims-os/logs/prepare-manual.log"
+mkdir -p "$(dirname "$LOG")"
+
+USTATE="${REIMS_USER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/reims-os}"
+PREPARED="$USTATE/prepared.json"
+SRC="$REIMS_VGPU_DIR"
+TOTAL=10
+
+b=$'\033[1m' g=$'\033[32m' r=$'\033[31m' y=$'\033[33m' d=$'\033[2m' o=$'\033[0m'
+[ -t 1 ] || b='' g='' r='' y='' d='' o=''
+
+logf() { printf '%s\n' "$*" >>"$LOG"; }
+ok() { printf '%s✓%s [%s/%s] %s%s%s  %s%s%s\n' "$g" "$o" "$1" "$TOTAL" "$b" "$2" "$o" "$d" "$3" "$o"; logf "ok [$1/$TOTAL] $2  $3"; }
+warn() { printf '%s!%s [%s/%s] %s%s%s  %s\n' "$y" "$o" "$1" "$TOTAL" "$b" "$2" "$o" "$3"; logf "warning [$1/$TOTAL] $2  $3"; }
+die() {
+	printf '%s✗%s [%s/%s] %s%s%s  %s\n' "$r" "$o" "$1" "$TOTAL" "$b" "$2" "$o" "$3"
+	logf "FAILED [$1/$TOTAL] $2  $3"
+	printf '\nThe details are in %s\n' "$LOG"
+	exit 1
+}
+secs() { # segundos → "2min 46s"
+	local s=$1
+	if [ "$s" -ge 60 ]; then printf '%dmin %02ds' $((s / 60)) $((s % 60)); else printf '%ds' "$s"; fi
+}
+# Roda um comando longo com um contador; a saída vai para o log.
+spin() { # N NOME DETALHE CMD...
+	local n=$1 name=$2 detail=$3 start pid i=0 frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+	shift 3
+	start=$(date +%s)
+	logf "+ $*"
+	"$@" >>"$LOG" 2>&1 &
+	pid=$!
+	while kill -0 "$pid" 2>/dev/null; do
+		printf '\r%s [%s/%s] %s%s%s  %s  %s ' "${frames:i++%10:1}" "$n" "$TOTAL" "$b" "$name" "$o" "$detail" "$(secs $(($(date +%s) - start)))"
+		sleep 1
+	done
+	wait "$pid"
+	local rc=$?
+	printf '\r\033[K'
+	SPIN_TIME=$(secs $(($(date +%s) - start)))
+	return $rc
+}
+sudo_note() {
+	if ! sudo -n true 2>/dev/null; then
+		printf '%sAdministrator password (sudo) needed to %s.%s\n' "$y" "$1" "$o"
+	fi
+}
+
+printf '%s%s%s v%s · %sPrepare environment%s\n' "$b" "$PRODUCT" "$o" "$VERSION" "$b" "$o"
+printf '%s\n\n' "────────────────────────────────────────────────────────────────"
+printf 'This prepares the computer for the VM manager: access to KVM and the GPU,\n'
+printf 'Rust, and Reims vGPU (downloaded from GitHub and built here, in %s).\n' "$SRC"
+printf '%sThe first run can take a while. The sudo password is asked only if a step needs it.%s\n\n' "$d" "$o"
+logf "== prepare $(date -u +%FT%TZ) follow=${FOLLOW:-saved} update=$UPDATE rebuild=$REBUILD"
+
+# a versão seguida: a escolhida agora, senão a salva, senão a fixada.
+saved_follow=$(sed -n 's/.*"follow": *"\([^"]*\)".*/\1/p' "$PREPARED" 2>/dev/null)
+saved_commit=$(sed -n 's/.*"commit": *"\([^"]*\)".*/\1/p' "$PREPARED" 2>/dev/null)
+[ -n "$FOLLOW" ] || FOLLOW=${saved_follow:-pinned}
+case "$FOLLOW" in ref:*) REF=${FOLLOW#ref:}; FOLLOW=ref ;; esac
+
+# ------------------------------------------------------------------ 1
+. /etc/os-release 2>/dev/null
+if [ "${ID:-}" = debian ] && [ "${VERSION_ID:-}" = 13 ]; then
+	ok 1 "This computer" "${PRETTY_NAME:-Debian} · $(uname -m)"
+else
+	warn 1 "This computer" "${PRETTY_NAME:-unknown}: only Debian 13 is tested"
+fi
+
+# ------------------------------------------------------------------ 2
+start=$(date +%s)
+vout=$(reimsctl hw validate 2>&1)
+vrc=$?
+gpu=$(printf '%s\n' "$vout" | tail -n1)
+logf "$vout"
+case $vrc in
+0) ok 2 "GPU and Vulkan" "${gpu#READY: Graphics: ready - } · $(secs $(($(date +%s) - start)))" ;;
+2) warn 2 "GPU and Vulkan" "software rendering only: macOS will be far too slow" ;;
+*) die 2 "GPU and Vulkan" "$gpu (see reimsctl hw validate)" ;;
+esac
+
+# ------------------------------------------------------------------ 3
+missing=()
+for grp in kvm render video; do
+	getent group "$grp" >/dev/null || continue
+	id -nG | tr ' ' '\n' | grep -qx "$grp" || missing+=("$grp")
+done
+if [ ${#missing[@]} -eq 0 ]; then
+	ok 3 "User groups" "already set"
+else
+	sudo_note "add you to the groups ${missing[*]}"
+	for grp in "${missing[@]}"; do sudo usermod -aG "$grp" "$USER" || die 3 "User groups" "usermod failed"; done
+	ok 3 "User groups" "added ${missing[*]} (they apply from the next session: restart the computer)"
+fi
+
+# ------------------------------------------------------------------ 4
+fix=()
+[ -r /dev/kvm ] && [ -w /dev/kvm ] || fix+=("/dev/kvm")
+maps=$(cat /proc/sys/vm/max_map_count 2>/dev/null || echo 0)
+[ "$maps" -ge 2097152 ] || fix+=("max_map_count")
+if grep -qsx 0x1002 /sys/class/drm/*/device/vendor && ! { [ -r /dev/udmabuf ] && [ -w /dev/udmabuf ]; }; then
+	fix+=("udmabuf")
+fi
+if [ ${#fix[@]} -eq 0 ]; then
+	ok 4 "KVM settings" "already set"
+else
+	[ -e /dev/kvm ] || die 4 "KVM settings" "/dev/kvm is missing: enable VT-x/AMD-V in the firmware"
+	sudo_note "set ${fix[*]}"
+	echo 'vm.max_map_count = 2097152' | sudo tee /etc/sysctl.d/90-reims-vgpu.conf >/dev/null &&
+		sudo sysctl -q -w vm.max_map_count=2097152 &&
+		sudo modprobe udmabuf 2>/dev/null
+	ok 4 "KVM settings" "set ${fix[*]}"
+fi
+
+# ------------------------------------------------------------------ 5
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+if command -v rustup >/dev/null 2>&1; then
+	ok 5 "Rust" "already installed · $(rustc --version 2>/dev/null | cut -d' ' -f2-)"
+else
+	spin 5 "Rust" "installing (rustup.rs)" sh -c \
+		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal" ||
+		die 5 "Rust" "rustup failed"
+	. "$HOME/.cargo/env"
+	ok 5 "Rust" "installed · $(rustc --version | cut -d' ' -f2-) · $SPIN_TIME"
+fi
+
+# ------------------------------------------------------------------ 6
+[ -d "$SRC" ] && [ -w "$SRC" ] || {
+	sudo_note "create $SRC"
+	sudo mkdir -p "$SRC" && sudo chown "$USER:$USER" "$SRC" || die 6 "Reims vGPU source" "cannot create $SRC"
+}
+if [ ! -d "$SRC/.git" ]; then
+	spin 6 "Reims vGPU source" "downloading from GitHub" \
+		git clone --filter=blob:none "$REIMS_VGPU_REPO" "$SRC" ||
+		die 6 "Reims vGPU source" "git clone failed (internet?)"
+fi
+if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+	die 6 "Reims vGPU source" "$SRC has local changes: nothing was cleaned or undone"
+fi
+previous=$(git -C "$SRC" rev-parse HEAD 2>/dev/null)
+case "$FOLLOW" in
+pinned) want=$REIMS_VGPU_PINNED ;;
+latest)
+	git -C "$SRC" fetch -q origin master >>"$LOG" 2>&1 || die 6 "Reims vGPU source" "git fetch failed"
+	want=$(git -C "$SRC" rev-parse FETCH_HEAD) ;;
+ref)
+	git -C "$SRC" fetch -q origin "$REF" >>"$LOG" 2>&1 || true
+	want=$(git -C "$SRC" rev-parse --verify -q "$REF^{commit}" || git -C "$SRC" rev-parse FETCH_HEAD) ||
+		die 6 "Reims vGPU source" "unknown ref $REF" ;;
+esac
+# no preparo normal, um commit já compilado é mantido (só --update troca).
+if [ "$UPDATE" = 0 ] && [ -n "$saved_commit" ] && [ "$FOLLOW" = "${saved_follow:-pinned}" ]; then
+	want=$saved_commit
+fi
+if ! git -C "$SRC" cat-file -e "$want^{commit}" 2>/dev/null; then
+	git -C "$SRC" fetch -q origin "$want" >>"$LOG" 2>&1 || git -C "$SRC" fetch -q origin >>"$LOG" 2>&1
+fi
+git -C "$SRC" -c advice.detachedHead=false checkout -q --detach "$want" >>"$LOG" 2>&1 ||
+	die 6 "Reims vGPU source" "cannot check out $want"
+label=$FOLLOW
+[ "$FOLLOW" = pinned ] && label="pinned"
+[ "$FOLLOW" = ref ] && label="ref $REF"
+if [ "$previous" = "$want" ]; then
+	ok 6 "Reims vGPU source" "${want:0:8} ($label) · already there"
+else
+	ok 6 "Reims vGPU source" "${want:0:8} ($label)${previous:+ · was ${previous:0:8}}"
+fi
+
+# ------------------------------------------------------------------ 7
+# a lista do appliance e a do install-ctl.sh deste commit (que pode ter mudado):
+# o build roda em segundo plano e não pode parar num prompt do sudo.
+deps=()
+while read -r p; do
+	case "$p" in '' | '#'*) continue ;; esac
+	dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || deps+=("$p")
+done < <({
+	cat /usr/lib/reims/build-deps.txt
+	sed -n '/^ *apt_pkgs=(/,/)/p' "$SRC/scripts/install-ctl.sh" 2>/dev/null |
+		sed -e 's/apt_pkgs=(//' -e 's/)//' | tr ' ' '\n'
+} | sort -u)
+if [ ${#deps[@]} -eq 0 ]; then
+	ok 7 "Build dependencies" "installed"
+else
+	sudo_note "install ${#deps[@]} build packages"
+	sudo -v || die 7 "Build dependencies" "sudo was refused"
+	spin 7 "Build dependencies" "installing ${#deps[@]} packages" \
+		sudo apt-get install -y --no-install-recommends "${deps[@]}" ||
+		die 7 "Build dependencies" "apt-get failed"
+	ok 7 "Build dependencies" "installed ${#deps[@]} packages · $SPIN_TIME"
+fi
+
+# ------------------------------------------------------------------ 8
+built_ok() { [ -x "$HOME/.cargo/bin/reims-ctl" ] && [ -e "$HOME/.local/share/reims-ctl/qemu/current" ]; }
+if [ "$REBUILD" = 0 ] && [ "$want" = "$saved_commit" ] && built_ok; then
+	ok 8 "Reims vGPU build" "already built (${want:0:8})"
+else
+	if [ "$REBUILD" = 1 ]; then
+		# do zero: a pasta de build do QEMU some; a compilação instalada fica até a nova passar.
+		rm -rf "$HOME/.cache/reims-ctl/qemu-build-linux-x86_64"
+	fi
+	if ! spin 8 "Reims vGPU build" "building the library and QEMU" \
+		"$SRC/scripts/install-ctl.sh" --yes; then
+		if [ -n "$previous" ] && [ "$previous" != "$want" ]; then
+			git -C "$SRC" -c advice.detachedHead=false checkout -q --detach "$previous" >>"$LOG" 2>&1
+			die 8 "Reims vGPU build" "the build of ${want:0:8} failed: back to ${previous:0:8}, whose build stays installed"
+		fi
+		die 8 "Reims vGPU build" "the build failed"
+	fi
+	ok 8 "Reims vGPU build" "${want:0:8} · $SPIN_TIME"
+fi
+
+# ------------------------------------------------------------------ 9
+export PATH="$HOME/.cargo/bin:$PATH"
+if dout=$(reims-ctl doctor 2>&1); then
+	ok 9 "Checks" "reims-ctl doctor passed"
+else
+	warn 9 "Checks" "reims-ctl doctor reported problems (Maintenance › Check this computer)"
+fi
+logf "$dout"
+
+# ------------------------------------------------------------------ 10
+f=$FOLLOW
+[ "$FOLLOW" = ref ] && f="ref:$REF"
+mkdir -p "$USTATE"
+cat >"$PREPARED" <<EOF
+{
+  "version": "$VERSION",
+  "commit": "$want",
+  "follow": "$f",
+  "at": "$(date -u +%FT%TZ)"
+}
+EOF
+ok 10 "Ready" "the VM manager can create VMs"
+echo

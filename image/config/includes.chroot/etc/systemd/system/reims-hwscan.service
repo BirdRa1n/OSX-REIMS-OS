@@ -1,0 +1,13 @@
+[Unit]
+Description=OSX-REIMS-OS hardware scan (GPUs and the monitor's GPU, every boot)
+ConditionPathIsDirectory=!/run/live
+After=systemd-udev-settle.service systemd-modules-load.service
+DefaultDependencies=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/reimsctl hw detect --save
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target

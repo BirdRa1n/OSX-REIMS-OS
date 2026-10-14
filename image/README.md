@@ -1,46 +1,51 @@
-# image/ — build da ISO (Debian 13 + live-build)
+# image/ — a ISO (Debian 13 + live-build)
 
-Gera `OSX-REIMS-OS` como uma ISO Debian 13 (trixie) sem GUI, que boota direto no
-console do `reimsctl` e traz o instalador (disco + senha) do Debian.
+Gera a ISO do OSX-REIMS-OS: Debian 13 (trixie) mínimo, UEFI, que boota no instalador
+próprio e, depois de instalado, no console do gerenciador.
 
-## Estrutura (autoral, versionada)
+## Estrutura
 
 ```
 image/
-  auto/config                         opções do `lb config` (distro, non-free, d-i)
+  auto/config                          opções do `lb config` (sem d-i, grub-efi, sha256)
   config/
-    package-lists/reims.list.chroot   pacotes (qemu, ovmf, mesa/vulkan, mtools…)
-    hooks/live/0100-reims.hook.chroot habilita os serviços systemd
+    archives/reims.{list,pref}.*       updates, security e backports (kernel)
+    bootloaders/grub-pc/               menu de boot do pendrive + tema
+    package-lists/reims.list.chroot    pacotes (sem driver/firmware de GPU, sem Vulkan)
+    hooks/live/0100-reims.hook.chroot  permissões, serviços, tema do Plymouth
     includes.chroot/
-      usr/local/bin/reims-console     loop do console no tty1
-      etc/systemd/system/
-        reims-provision.service       first-boot (GPU/driver/Vulkan)
-        reims-console.service         console no tty1 (conflita com getty@tty1)
-    includes.binary/preseed.cfg       preseed do instalador (disco+senha interativos)
+      usr/lib/reims/brand.sh           nomes e caminhos (a troca de nome começa aqui)
+      usr/lib/reims/build-deps.txt     pacotes do build do Reims vGPU
+      usr/local/sbin/reims-installer   instalador (whiptail, offline)
+      usr/local/sbin/reims-live        tty1 do pendrive: install / rescue / live
+      usr/local/sbin/reims-getty       login automático do tty1 (root no live, reims instalado)
+      usr/local/sbin/reims-firstboot   primeiro setup
+      usr/local/bin/reims-prepare      preparo do ambiente (10 etapas)
+      usr/local/bin/reims-session      sessão: cage + foot + reimsctl console
+      etc/systemd/system/              reims-firstboot, reims-hwscan, reims-boot-ok, drop-ins
+      etc/default/grub.d/reims.cfg     GRUB do sistema instalado (oculto, splash)
+      etc/grub.d/01_reims-bootcheck    menu volta após um boot que falhou
+      usr/share/plymouth/themes/reims/ tela de carregamento
 ```
 
-Gerados pelo `lb`/pelo build (gitignored): `config/{binary,bootstrap,chroot,common,source}`,
-`.build/`, `cache/`, e os binários montados em `includes.chroot/usr/local/bin/`
-(`reimsctl`, `provision.sh`).
+Gerados (gitignored): `config/{binary,bootstrap,chroot,common,source}`, `.build/`,
+`cache/`, `includes.chroot/usr/local/bin/reimsctl` e `includes.chroot/usr/lib/reims/version`.
 
-## Como buildar (numa Debian 13)
+## Como gerar (numa Debian 13)
 
 ```bash
 sudo apt install -y live-build
-scripts/build-iso.sh            # compila reimsctl, monta binários e roda o lb
+scripts/build-iso.sh
 ```
 
-O `build-iso.sh` compila o `reimsctl` (release), copia `reimsctl` + `provision.sh`
-para `includes.chroot/usr/local/bin/`, implanta o `reims-vgpu` pré-compilado de
-`vgpu/build/` (se existir) e roda o `lb build` (precisa de root/sudo). A ISO sai em
-`image/*.iso`.
+Sai `image/OSX-REIMS-OS-<versão>-amd64.iso` e o `.sha256`. O CI (`.github/workflows/iso.yml`)
+faz o mesmo num container `debian:trixie`, sob demanda e em tags `v*`.
 
-## Boot / fluxo
+## Gravar
 
-1. **Live/instalador**: o menu de boot oferece instalar (d-i) — o usuário escolhe o
-   **disco** e define a **senha** (resto preseedado). Ver `includes.binary/preseed.cfg`.
-2. **Primeiro boot** (instalado): `reims-provision.service` roda o provisioner
-   (GPU/driver/Vulkan) uma vez.
-3. **Operação**: `reims-console.service` toma o tty1 e mostra o menu do `reimsctl`.
+```bash
+sudo dd if=OSX-REIMS-OS-0.2.0-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync
+```
 
-Ver [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) §4.A–C e [../docs/ROADMAP.md](../docs/ROADMAP.md).
+No Windows/macOS: balenaEtcher, ou Rufus em **modo DD**. Boot em **UEFI**; se o pendrive
+não iniciar, desligue o Secure Boot.

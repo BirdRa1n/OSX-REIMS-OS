@@ -1,0 +1,25 @@
+[Unit]
+Description=OSX-REIMS-OS first setup (network, hardware, graphics drivers)
+# só no sistema instalado, e só até concluir.
+ConditionPathIsDirectory=!/run/live
+ConditionPathExists=!/var/lib/reims/firstboot.done
+After=systemd-user-sessions.service network.target reims-hwscan.service
+# o getty@tty1 (a sessão) só começa depois que o setup termina.
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+Environment=TERM=linux
+ExecStartPre=-/usr/bin/plymouth quit
+ExecStart=/usr/local/sbin/reims-firstboot
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TimeoutStartSec=infinity
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

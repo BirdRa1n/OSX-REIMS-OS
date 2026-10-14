@@ -47,3 +47,28 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  shell:
+    name: image scripts (bash -n + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          set -e
+          inc=image/config/includes.chroot
+          for f in $inc/usr/local/sbin/* $inc/usr/local/bin/reims-* \
+                   $inc/usr/lib/reims/brand.sh $inc/etc/profile.d/*.sh \
+                   $inc/etc/grub.d/* $inc/etc/kernel/post*.d/* \
+                   image/config/hooks/live/*.chroot image/auto/config scripts/*.sh; do
+            bash -n "$f"
+          done
+
+      - name: Shellcheck
+        run: |
+          inc=image/config/includes.chroot
+          shellcheck -x -P "$inc" -S warning \
+            $inc/usr/local/sbin/* $inc/usr/local/bin/reims-* \
+            $inc/etc/profile.d/*.sh $inc/etc/grub.d/* $inc/etc/kernel/post*.d/* \
+            image/config/hooks/live/*.chroot scripts/*.sh

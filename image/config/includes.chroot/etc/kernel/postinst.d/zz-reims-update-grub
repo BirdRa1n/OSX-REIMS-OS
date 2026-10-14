@@ -1,0 +1,8 @@
+#!/bin/sh
+# Um kernel novo (ou removido) refaz o grub.cfg. O appliance usa grub-efi-amd64-bin
+# (sem o pacote grub-efi-amd64, que tentaria instalar o GRUB no chroot do build).
+set -e
+[ -d /run/live ] && exit 0
+command -v update-grub >/dev/null 2>&1 || exit 0
+[ -e /boot/grub/grub.cfg ] || exit 0
+exec update-grub

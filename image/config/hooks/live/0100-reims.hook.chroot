@@ -1,11 +1,26 @@
 #!/bin/sh
-# Habilita os serviços do appliance e garante permissões dos scripts.
+# Prepara o sistema do appliance dentro da imagem (live e instalado).
 set -e
 
-chmod +x /usr/local/bin/reimsctl /usr/local/bin/provision.sh /usr/local/bin/reims-console 2>/dev/null || true
+chmod 0755 \
+	/usr/local/bin/reimsctl \
+	/usr/local/bin/reims-prepare \
+	/usr/local/bin/reims-session \
+	/usr/local/sbin/reims-installer \
+	/usr/local/sbin/reims-firstboot \
+	/usr/local/sbin/reims-live \
+	/usr/local/sbin/reims-getty \
+	/etc/grub.d/01_reims-bootcheck \
+	/etc/kernel/postinst.d/zz-reims-update-grub \
+	/etc/kernel/postrm.d/zz-reims-update-grub
 
-systemctl enable reims-provision.service
-systemctl enable reims-console.service
-
-# console em tty1: o reims-console.service já entra em conflito com getty@tty1.
+# serviços (cada um com ConditionPathIsDirectory=!/run/live: não rodam no pendrive).
+systemctl enable reims-firstboot.service reims-hwscan.service reims-boot-ok.service
+systemctl enable dhcpcd.service || true
+systemctl enable ssh.service || true
+# a rede não segura o boot (placas com várias portas).
+systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl set-default multi-user.target
+
+# tela de carregamento (o live-build regenera o initramfs depois dos hooks).
+plymouth-set-default-theme reims

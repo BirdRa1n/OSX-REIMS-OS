@@ -1,0 +1,11 @@
+#!/bin/sh
+# O getty do tty1, com login automático: root no pendrive (o instalador), e o
+# usuário da sessão no sistema instalado (o console do gerenciador).
+# shellcheck source=/usr/lib/reims/brand.sh
+. /usr/lib/reims/brand.sh
+if [ -d /run/live/medium ]; then
+	user=root
+else
+	user=$USER_NAME
+fi
+exec /sbin/agetty -o "-p -f -- \\u" --noclear --autologin "$user" "$1" "${TERM:-linux}"

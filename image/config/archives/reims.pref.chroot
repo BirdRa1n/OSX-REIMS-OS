@@ -1,0 +1,4 @@
+# O kernel (e headers, para o driver da NVIDIA) vêm dos backports do Debian.
+Package: linux-image-* linux-headers-* linux-kbuild-* linux-compiler-*
+Pin: release n=trixie-backports
+Pin-Priority: 990
