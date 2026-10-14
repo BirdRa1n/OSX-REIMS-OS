@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Versões de macOS que o appliance sabe provisionar.
+/// Versões de macOS oferecidas na criação de VMs (o padrão é a primeira).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MacosRelease {
@@ -39,9 +39,14 @@ impl MacosRelease {
         }
     }
 
-    /// Nome do "rail" (árvore de EFI/OpenCore + snapshots) desta versão.
-    pub fn rail(&self) -> String {
-        format!("macos-{}", self.major())
+    /// Nome que o `reims-ctl create --macos` aceita (`sonoma`).
+    pub fn slug(&self) -> &'static str {
+        match self {
+            MacosRelease::Ventura => "ventura",
+            MacosRelease::Sonoma => "sonoma",
+            MacosRelease::Sequoia => "sequoia",
+            MacosRelease::Tahoe => "tahoe",
+        }
     }
 
     /// Faz parse de um nome de código ou número maior (ex.: "sonoma" ou "14").
@@ -61,10 +66,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rail_and_major() {
+    fn slug_and_major() {
         assert_eq!(MacosRelease::Sonoma.major(), 14);
-        assert_eq!(MacosRelease::Sonoma.rail(), "macos-14");
-        assert_eq!(MacosRelease::Tahoe.rail(), "macos-26");
+        assert_eq!(MacosRelease::Sonoma.slug(), "sonoma");
+        assert_eq!(
+            MacosRelease::parse(MacosRelease::Tahoe.slug()),
+            Some(MacosRelease::Tahoe)
+        );
     }
 
     #[test]

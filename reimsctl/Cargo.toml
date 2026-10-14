@@ -2,15 +2,12 @@
 resolver = "2"
 members = [
     "crates/core",
-    "crates/efi",
-    "crates/macos",
-    "crates/updater",
     "crates/tui",
     "crates/cli",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["OSX-REIMS-OS contributors"]
@@ -20,12 +17,6 @@ repository = "https://github.com/BirdRa1n/OSX-REIMS-OS"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rand = "0.8"
-plist = "1"
-ureq = "2"
 
 reimsctl-core = { path = "crates/core" }
-reimsctl-efi = { path = "crates/efi" }
-reimsctl-macos = { path = "crates/macos" }
-reimsctl-updater = { path = "crates/updater" }
 reimsctl-tui = { path = "crates/tui" }

@@ -1,0 +1,27 @@
+OSX-REIMS-OS — license and terms of use (version 1.0)
+
+1. Software license
+   OSX-REIMS-OS (the system image, the first setup, the session and reimsctl) is
+   free software under the GNU General Public License, version 3 or later. It comes
+   with NO WARRANTY, to the extent permitted by law.
+
+2. Third-party software, downloaded and built on this computer
+   - Reims vGPU (https://github.com/steelbrain/reims-vgpu), its QEMU and reims-ctl:
+     GPL-2.0-or-later OR LGPL-3.0-or-later, by their own authors. OSX-REIMS-OS is
+     not affiliated with, sponsored or endorsed by them.
+   - Rust (rustup.rs), Debian packages and drivers: under their own licenses.
+   - macOS is downloaded from Apple's servers on this computer; nothing of Apple's
+     is distributed by this project.
+
+3. Experimental software
+   This is alpha software, for study, experiments and tests. It can fail, corrupt a
+   VM or change behaviour between versions. Do not keep data you depend on in it.
+   A macOS VM with a paravirtualized GPU is not a Mac: performance, stability and
+   Apple services do not compare. To use macOS every day, buy a Mac.
+
+4. Your responsibility
+   Apple's macOS license agreement restricts where macOS may run. Using macOS
+   outside Apple hardware is your decision and your responsibility.
+
+5. No technical support
+   There is no technical support and no guarantee of an answer or a fix.

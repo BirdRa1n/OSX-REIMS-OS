@@ -1,287 +1,317 @@
-//! reimsctl — binário do gerenciador de VMs do OSX-REIMS-OS.
+//! reimsctl — o gerenciador do appliance.
 //!
-//! Uso (fase-0/1, mínimo):
-//!   reimsctl console                 → TUI principal (menu interativo)
-//!   reimsctl releases                → lista versões de macOS
-//!   reimsctl identity                → gera uma identidade de VM (JSON)
-//!   reimsctl identity-inject <plist> → gera identidade e injeta no config.plist
-//!   reimsctl gpu-detect              → detecta a GPU do host (intel|amd|nvidia|unknown)
-//!   reimsctl fetch-macos <rel> <dir> → baixa o Recovery do macOS da Apple
-//!   reimsctl qemu-args <vm.json>     → imprime a linha do QEMU para uma VM
-//!   reimsctl update-check            → checa atualizações
-//!   reimsctl vm list                 → lista VMs
-//!   reimsctl vm create <nome> <rel>  → cria uma VM (rel: ventura|sonoma|sequoia|tahoe)
-//!   reimsctl vm start <nome>         → sobe uma VM no QEMU
-//!   reimsctl vm provision <nome> <rel> → cria + baixa macOS + OpenCore + disco
+//! Sem comando, abre o console. Tudo o que o console faz com as VMs passa pelo
+//! `reims-ctl` do Reims vGPU; o resto (hardware, diagnóstico, versão) é daqui.
 
-use anyhow::{Context, Result};
-use reimsctl_core::{launch, paths, qemu, release::MacosRelease, vm::VmConfig, Store};
+use anyhow::{bail, Context, Result};
+use reimsctl_core::{brand, ctl, diag, hw, state, Verdict};
+use std::process::Command;
 
-fn main() -> Result<()> {
+const HELP: &str = "\
+reimsctl — OSX-REIMS-OS manager
+
+Usage: reimsctl [command] [options]
+
+  console [--autostart]     the console (default); --autostart starts the VM marked to
+                            start with the computer
+  version                   versions of the system, kernel, reimsctl, reims-ctl and Reims vGPU
+  hw detect [--json] [--save]
+                            processor, virtualization, KVM, IOMMU, GPUs
+  hw plan [--json|--packages|--nvidia-packages|--iommu-args]
+                            what the first setup installs, and why (installs nothing)
+  hw validate [--json] [--save]
+                            the graphics chain: READY, SOFTWARE or FAIL (exit 0, 2, 1)
+  hw report                 a readable summary of all of the above
+  hw provision [--nvidia]   install the plan (root; the first setup runs it)
+  diagnostics [--save] [--splash]
+                            everything needed to understand a problem, safe to share
+  doctor                    hw validate + reims-ctl doctor
+  prepare [options]         prepare the environment (reims-prepare)
+  license [--accept]        show (or accept) the license
+  list                      the VMs
+  start|stop|poweroff|delete N
+                            act on VM N (10 to 99) through reims-ctl
+  autostart [on N|off|status]
+                            the VM that starts with the computer
+  ctl ARGS...               run reims-ctl ARGS...
+  help                      this help";
+
+fn main() {
+    match real_main() {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn has(args: &[String], flag: &str) -> bool {
+    args.iter().any(|a| a == flag)
+}
+
+fn real_main() -> Result<i32> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("console");
-
+    let rest = &args[args.len().min(1)..];
     match cmd {
         "console" | "menu" => {
-            console_loop()?;
+            reimsctl_tui::run(reimsctl_tui::Options {
+                autostart: has(rest, "--autostart"),
+            })?;
+            Ok(0)
         }
-        "releases" => {
-            reimsctl_tui::print_releases();
+        "version" | "--version" | "-V" => {
+            print!("{}", diag::version_text());
+            Ok(0)
         }
-        "identity" => {
-            let id = reimsctl_efi::Identity::generate();
-            println!("{}", serde_json::to_string_pretty(&id)?);
+        "hw" => hw_cmd(rest),
+        "diagnostics" => diagnostics(rest),
+        "doctor" => doctor(),
+        "prepare" | "setup" => {
+            let st = Command::new("reims-prepare")
+                .args(rest)
+                .status()
+                .context("running reims-prepare")?;
+            Ok(st.code().unwrap_or(1))
         }
-        "identity-inject" => {
-            let path = args
-                .get(1)
-                .context("uso: reimsctl identity-inject <config.plist>")?;
-            let id = reimsctl_efi::Identity::generate();
-            reimsctl_efi::set_platform_identity(std::path::Path::new(path), &id)?;
-            eprintln!("identidade injetada em {path}");
-            println!("{}", serde_json::to_string_pretty(&id)?);
-        }
-        "qemu-args" => {
-            let path = args.get(1).context("uso: reimsctl qemu-args <vm.json>")?;
-            let data = std::fs::read_to_string(path).with_context(|| format!("lendo {path}"))?;
-            let vm: VmConfig =
-                serde_json::from_str(&data).with_context(|| format!("parseando {path}"))?;
-            let qemu_args = qemu::build_args(&vm)?;
-            println!("qemu-system-x86_64 {}", qemu_args.join(" "));
-        }
-        "gpu-detect" => {
-            let v = reimsctl_core::gpu::detect_primary();
-            println!("{}", v.as_str());
-            eprintln!(
-                "driver Vulkan: {} | opt-in: {}",
-                v.vulkan_driver(),
-                v.requires_optin()
-            );
-        }
-        "fetch-macos" => {
-            let rel = args
-                .get(1)
-                .context("uso: reimsctl fetch-macos <release> <dir>")?;
-            let dir = args
-                .get(2)
-                .context("uso: reimsctl fetch-macos <release> <dir>")?;
-            let macos =
-                MacosRelease::parse(rel).with_context(|| format!("release inválida: {rel}"))?;
-            let img = reimsctl_macos::fetch_recovery(macos, std::path::Path::new(dir))?;
-            println!("baixado: {}", img.path.display());
-        }
-        "update-check" => {
-            let st = reimsctl_updater::check()?;
-            match st.latest {
-                Some(v) => println!("atual {} → disponível {}", st.current, v),
-                None => println!("atual {} (sem atualização)", st.current),
+        "license" => {
+            if has(rest, "--accept") {
+                state::accept_license()?;
+                println!("license {} accepted", state::LICENSE_VERSION);
+            } else {
+                print!("{}", reimsctl_tui::LICENSE_TEXT);
+                println!(
+                    "\naccepted: {}",
+                    if state::license_accepted() {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
             }
+            Ok(0)
         }
-        "vm" => {
-            vm_subcommand(&args)?;
+        "list" => {
+            ctl::run_ok(&["list"])?;
+            Ok(0)
+        }
+        "start" | "stop" | "poweroff" | "delete" => {
+            let n = rest
+                .first()
+                .and_then(|s| ctl::parse_id(s))
+                .with_context(|| format!("usage: reimsctl {cmd} <VM number, 10 to 99>"))?;
+            let name = ctl::vm_name(n);
+            match cmd {
+                "poweroff" => ctl::run_ok(&["stop", &name, "--force"])?,
+                "delete" => {
+                    ctl::run_ok(&["delete", &name])?;
+                    state::forget_vm(&name)?;
+                }
+                c => ctl::run_ok(&[c, &name])?,
+            }
+            Ok(0)
+        }
+        "autostart" => autostart(rest),
+        "ctl" => {
+            let a: Vec<&str> = rest.iter().map(String::as_str).collect();
+            Ok(ctl::run(&a)?.code().unwrap_or(1))
+        }
+        "help" | "-h" | "--help" => {
+            println!("{HELP}");
+            Ok(0)
         }
         other => {
-            eprintln!("comando desconhecido: {other}");
-            eprintln!(
-                "comandos: console | releases | identity | identity-inject <plist> | gpu-detect | fetch-macos <rel> <dir> | qemu-args <vm.json> | update-check | vm ..."
-            );
-            std::process::exit(2);
+            eprintln!("unknown command: {other}\n\n{HELP}");
+            Ok(2)
         }
     }
-    Ok(())
 }
 
-fn vm_subcommand(args: &[String]) -> Result<()> {
-    let store = Store::new(Store::default_root());
-    match args.get(1).map(String::as_str) {
-        Some("list") => {
-            let names = store.list()?;
-            if names.is_empty() {
-                println!("(nenhuma VM)");
-            }
-            for name in names {
-                println!("{name}");
-            }
-        }
-        Some("create") => {
-            let name = args
-                .get(2)
-                .context("uso: reimsctl vm create <nome> <release>")?;
-            let rel = args
-                .get(3)
-                .context("uso: reimsctl vm create <nome> <release>")?;
-            let macos = MacosRelease::parse(rel).with_context(|| {
-                format!("release inválida: {rel} (use ventura|sonoma|sequoia|tahoe)")
-            })?;
-            let cfg = store.create(name, macos)?;
-            println!(
-                "criada VM '{}' (macOS {}) em {}",
-                cfg.name,
-                cfg.macos.code_name(),
-                cfg.dir.display()
-            );
-        }
-        Some("start") => {
-            let name = args.get(2).context("uso: reimsctl vm start <nome>")?;
-            let cfg = store.load(name)?;
-            launch::create_disk(&cfg)?;
-            launch::start(&cfg)?;
-        }
-        Some("provision") => {
-            let name = args
-                .get(2)
-                .context("uso: reimsctl vm provision <nome> <release>")?;
-            let rel = args
-                .get(3)
-                .context("uso: reimsctl vm provision <nome> <release>")?;
-            let macos =
-                MacosRelease::parse(rel).with_context(|| format!("release inválida: {rel}"))?;
-            vm_provision(&store, name, macos)?;
-        }
-        _ => {
-            eprintln!(
-                "uso: reimsctl vm <list|create <nome> <rel>|start <nome>|provision <nome> <rel>>"
-            );
-            std::process::exit(2);
-        }
+fn save(path: &std::path::Path, text: &str) -> Result<()> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
     }
-    Ok(())
+    std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
 
-/// Fluxo end-to-end: cria a VM, baixa o macOS, prepara o OpenCore com identidade
-/// única e cria o disco. Deixa pronta para `vm start` (falta só a OSK).
-fn vm_provision(store: &Store, name: &str, macos: MacosRelease) -> Result<()> {
-    println!(">> [1/4] criando VM '{name}' (macOS {})", macos.code_name());
-    let cfg = store.create(name, macos)?;
-
-    println!(">> [2/4] baixando macOS Recovery da Apple (pode demorar)");
-    reimsctl_macos::fetch_recovery(macos, &cfg.dir)?;
-
-    println!(">> [3/4] preparando OpenCore + identidade única");
-    let base = paths::opencore_base_image(&paths::opencore_base_dir(), macos);
-    anyhow::ensure!(
-        base.is_file(),
-        "base do OpenCore ausente: {} (rode opencore/fetch-base.sh e instale em {})",
-        base.display(),
-        paths::DEFAULT_OPENCORE_BASE_DIR
-    );
-    std::fs::copy(&base, cfg.opencore_path()).with_context(|| {
-        format!(
-            "copiando {} -> {}",
-            base.display(),
-            cfg.opencore_path().display()
-        )
-    })?;
-
-    let id = reimsctl_efi::Identity::generate();
-    let plist = cfg.dir.join("config.plist");
-    let oc_img = cfg.opencore_path();
-    run_oc_image("extract", &oc_img, &plist)?;
-    reimsctl_efi::set_platform_identity(&plist, &id)?;
-    run_oc_image("inject", &oc_img, &plist)?;
-    std::fs::write(
-        cfg.dir.join("identity.json"),
-        serde_json::to_string_pretty(&id)?,
-    )?;
-
-    println!(">> [4/4] criando disco da VM");
-    launch::create_disk(&cfg)?;
-
-    println!(
-        "VM '{name}' pronta. Defina 'applesmc_osk' em {} e rode: reimsctl vm start {name}",
-        cfg.config_path().display()
-    );
-    Ok(())
-}
-
-/// Loop do console: desenha a TUI, executa a ação escolhida e repete.
-fn console_loop() -> Result<()> {
-    use reimsctl_tui::Action;
-    loop {
-        let store = Store::new(Store::default_root());
-        let vms = store.list().unwrap_or_default();
-        match reimsctl_tui::run(&vms)? {
-            Action::Quit => break,
-            Action::StartVm(name) => {
-                report(store.load(&name).and_then(|cfg| {
-                    launch::create_disk(&cfg)?;
-                    launch::start(&cfg)
-                }));
-                pause();
+fn hw_cmd(args: &[String]) -> Result<i32> {
+    let sub = args.first().map(String::as_str).unwrap_or("report");
+    let json = has(args, "--json");
+    let h = hw::detect();
+    match sub {
+        "detect" => {
+            let j = serde_json::to_string_pretty(&h)?;
+            if has(args, "--save") {
+                save(&hw::saved_path(), &j)?;
             }
-            Action::CreateVm => {
-                let name = prompt("nome da VM: ")?;
-                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
-                match MacosRelease::parse(&rel) {
-                    Some(m) => report(store.create(&name, m).map(|_| ())),
-                    None => eprintln!("release inválida"),
+            if json {
+                println!("{j}");
+            } else {
+                print!("{}", detect_text(&h));
+            }
+            Ok(0)
+        }
+        "plan" => {
+            let p = hw::plan(&h);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p)?);
+            } else if has(args, "--packages") {
+                println!("{}", p.packages.join("\n"));
+            } else if has(args, "--nvidia-packages") {
+                println!("{}", p.nvidia_packages.join("\n"));
+            } else if has(args, "--iommu-args") {
+                println!("{}", p.iommu_args.join(" "));
+            } else {
+                println!("Drivers and firmware, from Debian's repository:");
+                for r in &p.reasons {
+                    println!("  {r}");
                 }
-                pause();
-            }
-            Action::ProvisionVm => {
-                let name = prompt("nome da VM: ")?;
-                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
-                match MacosRelease::parse(&rel) {
-                    Some(m) => report(vm_provision(&store, &name, m)),
-                    None => eprintln!("release inválida"),
+                println!("\nPackages: {}", p.packages.join(" "));
+                if !p.nvidia_packages.is_empty() {
+                    println!(
+                        "NVIDIA (only with your permission): {}",
+                        p.nvidia_packages.join(" ")
+                    );
                 }
-                pause();
-            }
-            Action::FetchMacos => {
-                let rel = prompt("release (ventura|sonoma|sequoia|tahoe): ")?;
-                let dir = prompt("diretório destino: ")?;
-                match MacosRelease::parse(&rel) {
-                    Some(m) => report(
-                        reimsctl_macos::fetch_recovery(m, std::path::Path::new(&dir)).map(|_| ()),
-                    ),
-                    None => eprintln!("release inválida"),
+                println!("Kernel modules: {}", p.modules.join(" "));
+                if !p.iommu_args.is_empty() {
+                    println!(
+                        "IOMMU (optional, not needed by Reims vGPU): {}",
+                        p.iommu_args.join(" ")
+                    );
                 }
-                pause();
             }
-            Action::Update => {
-                if let Ok(st) = reimsctl_updater::check() {
-                    match st.latest {
-                        Some(v) => println!("disponível: {v}"),
-                        None => println!("atual {} (sem atualização)", st.current),
+            Ok(0)
+        }
+        "validate" => {
+            let v = hw::validate(&h);
+            if has(args, "--save") {
+                save(
+                    &hw::verdict_path(),
+                    &format!("{}\n{}\n", v.verdict.as_str(), v.message),
+                )?;
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                for c in &v.gpus {
+                    println!(
+                        "{} {}{} — {}",
+                        if c.ok { "✓" } else { "✗" },
+                        c.name,
+                        if c.display { " (monitor)" } else { "" },
+                        c.detail
+                    );
+                }
+                println!(
+                    "{} KVM{}",
+                    if v.kvm { "✓" } else { "✗" },
+                    if v.kvm {
+                        String::new()
+                    } else {
+                        " — /dev/kvm is missing: enable VT-x/AMD-V in the firmware".into()
                     }
-                }
-                pause();
+                );
+                println!("{}: {}", v.verdict.as_str(), v.message);
             }
+            Ok(match v.verdict {
+                Verdict::Ready => 0,
+                Verdict::Software => 2,
+                Verdict::Fail => 1,
+            })
         }
-    }
-    Ok(())
-}
-
-fn prompt(msg: &str) -> Result<String> {
-    use std::io::Write;
-    print!("{msg}");
-    std::io::stdout().flush()?;
-    let mut s = String::new();
-    std::io::stdin().read_line(&mut s)?;
-    Ok(s.trim().to_string())
-}
-
-fn pause() {
-    let _ = prompt("[enter para voltar] ");
-}
-
-fn report(r: Result<()>) {
-    match r {
-        Ok(()) => println!("ok"),
-        Err(e) => eprintln!("erro: {e:#}"),
+        "report" => {
+            print!("{}", hw::report(&h, &hw::plan(&h), &hw::validate(&h)));
+            Ok(0)
+        }
+        "provision" | "drivers" => {
+            let p = hw::plan(&h);
+            let mut pkgs = p.packages.clone();
+            if has(args, "--nvidia") {
+                pkgs.extend(p.nvidia_packages.clone());
+            }
+            println!("Installing: {}", pkgs.join(" "));
+            let st = Command::new("apt-get")
+                .args(["install", "-y", "--no-install-recommends"])
+                .args(&pkgs)
+                .status()
+                .context("running apt-get (as root)")?;
+            Ok(st.code().unwrap_or(1))
+        }
+        other => bail!("unknown: hw {other} (detect, plan, validate, report, provision)"),
     }
 }
 
-/// Invoca o `oc-image.sh` (`extract`/`inject`) via bash.
-fn run_oc_image(action: &str, img: &std::path::Path, plist: &std::path::Path) -> Result<()> {
-    let script = paths::oc_image_script();
-    let status = std::process::Command::new("bash")
-        .arg(&script)
-        .arg(action)
-        .arg(img)
-        .arg(plist)
-        .status()
-        .with_context(|| format!("executando {}", script.display()))?;
-    anyhow::ensure!(status.success(), "oc-image.sh {action} falhou ({status})");
-    Ok(())
+fn detect_text(h: &hw::Hardware) -> String {
+    let yes = |b: bool| if b { "yes" } else { "no" };
+    let mut s = format!(
+        "Processor      {}\nVirtualization {}\nKVM            {}\nIOMMU          firmware {}, enabled {}\n",
+        h.cpu.model,
+        h.cpu.virt.as_deref().unwrap_or("none"),
+        yes(h.kvm),
+        yes(h.iommu.firmware),
+        yes(h.iommu.enabled)
+    );
+    for (i, g) in h.gpus.iter().enumerate() {
+        s.push_str(&format!(
+            "GPU{i}           {} [{}] driver {}{}\n",
+            g.name,
+            g.id(),
+            g.driver.as_deref().unwrap_or("none"),
+            if g.display { " · monitor" } else { "" }
+        ));
+    }
+    s
+}
+
+fn diagnostics(args: &[String]) -> Result<i32> {
+    if has(args, "--splash") {
+        print!("{}", diag::splash_text());
+        return Ok(0);
+    }
+    let r = diag::report();
+    print!("{r}");
+    if has(args, "--save") {
+        let p = brand::home().join(format!("reims-diagnostics-{}.txt", state::now_stamp()));
+        save(&p, &r)?;
+        eprintln!("\nsaved: {}", p.display());
+    }
+    Ok(0)
+}
+
+fn doctor() -> Result<i32> {
+    let h = hw::detect();
+    let v = hw::validate(&h);
+    println!("{}: {}", v.verdict.as_str(), v.message);
+    let mut code = i32::from(v.verdict != Verdict::Ready);
+    if ctl::installed() {
+        code |= ctl::run(&["doctor"])?.code().unwrap_or(1);
+    } else {
+        println!("reims-ctl is not installed: prepare the environment (reimsctl prepare)");
+        code = 1;
+    }
+    Ok(code)
+}
+
+fn autostart(args: &[String]) -> Result<i32> {
+    match args.first().map(String::as_str).unwrap_or("status") {
+        "on" => {
+            let n = args
+                .get(1)
+                .and_then(|s| ctl::parse_id(s))
+                .context("usage: reimsctl autostart on <VM number>")?;
+            state::set_autostart(Some(&ctl::vm_name(n)))?;
+            println!("VM {n} starts with the computer");
+        }
+        "off" => {
+            state::set_autostart(None)?;
+            println!("no VM starts with the computer");
+        }
+        _ => match state::autostart() {
+            Some(n) => println!("{n} starts with the computer"),
+            None => println!("no VM starts with the computer"),
+        },
+    }
+    Ok(0)
 }
