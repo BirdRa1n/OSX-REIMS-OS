@@ -14,6 +14,10 @@ DEB_MIRROR="http://deb.debian.org/debian/"
 #   o sistema instalado recebe trixie-security por config/archives.
 # --firmware-*: só o firmware de rede da lista de pacotes; o de GPU é escolhido
 #   no first setup, para a máquina.
+# modprobe.blacklist=nouveau (no bootappend-live): como a ISO não traz o firmware
+#   GSP da NVIDIA, o nouveau falha ruidoso no boot do instalador (Turing+). Fica de
+#   fora só durante o live/instalador; o sistema instalado escolhe o driver no
+#   first setup (o grub do disco não leva esta opção).
 lb config noauto \
 	--mode debian \
 	--distribution trixie \
@@ -33,7 +37,7 @@ lb config noauto \
 	--bootloaders grub-efi \
 	--binary-images iso-hybrid \
 	--checksums sha256 \
-	--bootappend-live "boot=live components quiet splash noeject" \
+	--bootappend-live "boot=live components quiet splash noeject modprobe.blacklist=nouveau" \
 	--iso-application "OSX-REIMS-OS" \
 	--iso-publisher "OSX-REIMS-OS" \
 	--iso-volume "OSX-REIMS-OS" \
