@@ -1,5 +1,6 @@
 # O kernel (com headers, para o driver da NVIDIA, e o linux-base que ele exige)
-# vem dos backports do Debian.
+# vem dos backports do Debian. Prioridade 1001 força a versão de backports mesmo
+# quando o trixie já instalou a dele (o kernel 7.x PreDepends linux-base >= 4.17).
 Package: linux-image-* linux-headers-* linux-kbuild-* linux-compiler-* linux-base
 Pin: release n=trixie-backports
-Pin-Priority: 990
+Pin-Priority: 1001
