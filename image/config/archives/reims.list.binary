@@ -1,4 +1,4 @@
-# Atualizações, segurança e backports (kernel novo, para GPUs recentes).
-deb http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+# Backports (kernel novo, para GPUs recentes). O trixie-security o sistema
+# instalado já traz no sources.list base — não repetir aqui (evita os avisos
+# "configured multiple times").
 deb http://deb.debian.org/debian/ trixie-backports main contrib non-free non-free-firmware
